@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Blind Five"
+description = "A basketball player guessing game where players use team-building clues, timed rounds, and scoring to identify hidden NBA players."
+version = "1.0.0"
+id = "artifacts/blind-five"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20429
+
+[services.development]
+run = "pnpm --filter @workspace/blind-five run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/blind-five", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/blind-five/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20429"
+BASE_PATH = "/"
