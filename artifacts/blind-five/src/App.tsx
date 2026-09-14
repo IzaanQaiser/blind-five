@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   applyFranchisePlayer,
@@ -42,28 +42,29 @@ const powerupDefinitions: PowerupDefinition[] = [
   {
     id: 'teamCheck',
     label: 'TEAM CHECK',
-    description: 'Reveal all five teams',
+    description: 'Reveals all five teams for the current board.',
     shortcut: '1',
     field: 'teamHint',
   },
   {
     id: 'timeline',
     label: 'TIMELINE',
-    description: 'Reveal all five timelines',
+    description: 'Reveals all five career timelines and years active.',
     shortcut: '2',
     field: 'yearsActive',
   },
   {
     id: 'scout',
     label: 'SCOUT',
-    description: 'Reveal all five scout notes',
+    description: 'Reveals all five scout notes.',
     shortcut: '3',
     field: 'scoutHint',
   },
   {
     id: 'franchisePlayer',
     label: 'FRANCHISE PLAYER',
-    description: 'Reroll this board with at least one ALL-TIMER guaranteed',
+    description:
+      'Rerolls or adjusts the current board so at least one top-tier player is guaranteed, without revealing which one.',
     shortcut: '4',
   },
 ];
@@ -85,6 +86,26 @@ function isEditableTarget(target: EventTarget | null) {
     target instanceof HTMLElement &&
     Boolean(target.closest('input, select, textarea, [contenteditable="true"]'))
   );
+}
+
+function getInitialHowToPlayOpen() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem('blind-five-how-to-play-seen') !== 'true';
+  } catch {
+    return false;
+  }
+}
+
+function persistHowToPlayDismissal() {
+  try {
+    window.localStorage.setItem('blind-five-how-to-play-seen', 'true');
+  } catch {
+    // If storage is unavailable, the current session can still continue.
+  }
 }
 
 function App() {
@@ -114,6 +135,10 @@ function App() {
   const [finalBoards, setFinalBoards] = useState<FinalBoardHistory>({});
   const [draftEfficiency, setDraftEfficiency] = useState<number | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isHowToPlayOpen, setIsHowToPlayOpen] = useState(
+    getInitialHowToPlayOpen,
+  );
+  const modalRef = useRef<HTMLElement>(null);
 
   const currentPosition = POSITIONS[currentPositionIndex];
   const revealedPowerups = powerupDefinitions.filter(
@@ -299,6 +324,55 @@ function App() {
     setDraftEfficiency(null);
   };
 
+  const closeHowToPlay = () => {
+    persistHowToPlayDismissal();
+    setIsHowToPlayOpen(false);
+  };
+
+  const openHowToPlay = () => {
+    setIsHelpOpen(false);
+    setIsHowToPlayOpen(true);
+  };
+
+  useEffect(() => {
+    if (!isHelpOpen && !isHowToPlayOpen) {
+      return;
+    }
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const modal = modalRef.current;
+    const focusableSelector =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const focusable = modal
+      ? Array.from(modal.querySelectorAll<HTMLElement>(focusableSelector))
+      : [];
+
+    focusable[0]?.focus();
+
+    const handleModalTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleModalTab);
+    return () => {
+      document.removeEventListener('keydown', handleModalTab);
+      previouslyFocused?.focus();
+    };
+  }, [isHelpOpen, isHowToPlayOpen]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) {
@@ -306,7 +380,10 @@ function App() {
       }
 
       if (event.key === 'Escape') {
-        if (isHelpOpen) {
+        if (isHowToPlayOpen) {
+          event.preventDefault();
+          closeHowToPlay();
+        } else if (isHelpOpen) {
           event.preventDefault();
           setIsHelpOpen(false);
         }
@@ -315,11 +392,13 @@ function App() {
 
       if (event.key === '?') {
         event.preventDefault();
-        setIsHelpOpen(true);
+        if (!isHowToPlayOpen) {
+          setIsHelpOpen(true);
+        }
         return;
       }
 
-      if (isHelpOpen || isEditableTarget(event.target)) {
+      if (isHelpOpen || isHowToPlayOpen || isEditableTarget(event.target)) {
         return;
       }
 
@@ -356,6 +435,7 @@ function App() {
     currentPowerupReveals,
     isDraftComplete,
     isHelpOpen,
+    isHowToPlayOpen,
     round,
     selectedOptionId,
     usedPowerups,
@@ -622,13 +702,6 @@ function App() {
                         <span className="powerup-label">{powerup.label}</span>
                         <kbd className="control-keycap">{powerup.shortcut}</kbd>
                       </span>
-                      <span className="powerup-description">
-                        {isUsed
-                          ? 'USED'
-                          : isLockedAfterPick
-                            ? 'LOCKED AFTER PICK'
-                            : powerup.description}
-                      </span>
                     </button>
                   );
                 })}
@@ -796,11 +869,12 @@ function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="help-modal-title"
+            ref={modalRef}
           >
             <div className="help-modal-header">
               <div>
                 <span className="round-kicker">QUICK REFERENCE</span>
-                <h2 id="help-modal-title">HOW TO PLAY</h2>
+                <h2 id="help-modal-title">POWERUPS &amp; SHORTCUTS</h2>
               </div>
               <button
                 className="help-close-button"
@@ -812,26 +886,117 @@ function App() {
               </button>
             </div>
             <p className="help-modal-intro">
-              Scout the clues, spend your tools before the pick, and build the
-              best possible starting five.
+              Use extra information before you commit to a pick. Every powerup
+              is one-use per draft and is consumed as soon as you activate it.
             </p>
-            <div className="shortcut-list">
-              {[
-                ['1', 'Team Check'],
-                ['2', 'Timeline'],
-                ['3', 'Scout'],
-                ['4', 'Franchise Player'],
-                ['R', 'Restart / Draft Again'],
-                ['?', 'Open Help'],
-                ['Esc', 'Close Help'],
-              ].map(([key, label]) => (
-                <div className="shortcut-row" key={key}>
-                  <kbd className="control-keycap">{key}</kbd>
-                  <span>{label}</span>
+            <div className="help-powerup-list">
+              {powerupDefinitions.map((powerup) => (
+                <div className="help-powerup-row" key={powerup.id}>
+                  <div className="help-powerup-heading">
+                    <strong>{powerup.label}</strong>
+                    <kbd className="control-keycap">{powerup.shortcut}</kbd>
+                  </div>
+                  <p>{powerup.description}</p>
                 </div>
               ))}
             </div>
-            <p className="help-modal-note">SHORTCUTS PAUSE WHILE THIS WINDOW IS OPEN</p>
+            <div className="help-shortcuts">
+              <span>
+                <kbd className="control-keycap">R</kbd> Restart / Draft Again
+              </span>
+              <span>
+                <kbd className="control-keycap">?</kbd> Open Help
+              </span>
+            </div>
+            <button
+              className="help-reopen-button"
+              type="button"
+              onClick={openHowToPlay}
+            >
+              REOPEN HOW TO PLAY
+            </button>
+            <p className="help-modal-note">ESC OR CLICK OUTSIDE TO CLOSE</p>
+          </section>
+        </div>
+      ) : null}
+
+      {isHowToPlayOpen ? (
+        <div
+          className="help-modal-backdrop how-to-play-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              closeHowToPlay();
+            }
+          }}
+        >
+          <section
+            className="help-modal how-to-play-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="how-to-play-title"
+            ref={modalRef}
+          >
+            <div className="help-modal-header">
+              <div>
+                <span className="round-kicker">FIRST-TIME GUIDE</span>
+                <h2 id="how-to-play-title">HOW TO PLAY</h2>
+              </div>
+              <button
+                className="help-close-button"
+                type="button"
+                onClick={closeHowToPlay}
+                aria-label="Skip How to Play"
+              >
+                ×
+              </button>
+            </div>
+            <ol className="how-to-play-steps">
+              <li>
+                <span>01</span>
+                <p>
+                  <strong>Draft your lineup.</strong> Choose in order: PG,
+                  SG, SF, PF, then C.
+                </p>
+              </li>
+              <li>
+                <span>02</span>
+                <p>
+                  <strong>Read the clues.</strong> Each round shows five
+                  mystery players identified only by clues.
+                </p>
+              </li>
+              <li>
+                <span>03</span>
+                <p>
+                  <strong>Make your pick.</strong> Choose one player, then the
+                  board reveals who everyone was and how rare they are.
+                </p>
+              </li>
+              <li>
+                <span>04</span>
+                <p>
+                  <strong>Use powerups wisely.</strong> They reveal extra
+                  information, but each is one-use per draft.
+                </p>
+              </li>
+            </ol>
+            <div className="how-to-play-actions">
+              <button
+                className="start-draft-button"
+                type="button"
+                onClick={closeHowToPlay}
+              >
+                START DRAFT
+              </button>
+              <button
+                className="skip-how-to-play-button"
+                type="button"
+                onClick={closeHowToPlay}
+              >
+                SKIP
+              </button>
+            </div>
           </section>
         </div>
       ) : null}
