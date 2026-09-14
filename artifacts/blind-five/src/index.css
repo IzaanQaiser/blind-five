@@ -711,6 +711,194 @@ h1 em {
   opacity: 0.48;
 }
 
+.mystery-card.is-revealed {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  animation: rarity-reveal 360ms ease-out both;
+}
+
+.mystery-card.is-revealed::before,
+.mystery-card.is-revealed::after {
+  position: absolute;
+  pointer-events: none;
+  content: '';
+}
+
+.mystery-card.is-revealed::before {
+  z-index: -1;
+  inset: 0;
+  opacity: 0.72;
+  background:
+    radial-gradient(circle at 18% 12%, var(--tier-glow), transparent 34%),
+    linear-gradient(145deg, var(--tier-wash), transparent 54%);
+}
+
+.mystery-card.is-revealed::after {
+  z-index: -1;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(
+    circle at 50% 0%,
+    var(--tier-glow),
+    transparent 44%
+  );
+}
+
+.mystery-card.is-revealed .card-identity {
+  border-color: var(--tier-accent);
+  background: var(--tier-identity);
+  color: var(--tier-accent);
+  box-shadow: 0 0 18px var(--tier-shadow);
+}
+
+.mystery-card.is-revealed .card-reveal span {
+  color: var(--tier-accent);
+}
+
+.mystery-card.is-locked.is-revealed {
+  opacity: 0.56;
+  filter: saturate(0.76) brightness(0.78);
+}
+
+.mystery-card.is-selected.is-revealed {
+  z-index: 2;
+  opacity: 1;
+  filter: none;
+  border-color: var(--tier-accent);
+  box-shadow:
+    0 0 0 1px var(--tier-outline),
+    0 0 24px var(--tier-shadow),
+    inset 0 0 24px var(--tier-inner-shadow);
+  transform: translateY(-3px) scale(1.018);
+}
+
+.mystery-card.is-selected.is-revealed::after {
+  opacity: 0.22;
+  animation: selected-tier-pulse 1.4s ease-out 1;
+}
+
+.mystery-card.tier-all-timer {
+  --tier-accent: #f6bd62;
+  --tier-glow: rgba(246, 189, 98, 0.42);
+  --tier-wash: rgba(228, 123, 66, 0.2);
+  --tier-identity: rgba(228, 123, 66, 0.18);
+  --tier-shadow: rgba(246, 189, 98, 0.5);
+  --tier-outline: rgba(255, 216, 137, 0.64);
+  --tier-inner-shadow: rgba(228, 123, 66, 0.22);
+  border-color: #d9924d;
+  background:
+    linear-gradient(145deg, rgba(246, 189, 98, 0.16), transparent 42%),
+    rgba(51, 37, 27, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(246, 189, 98, 0.3),
+    0 0 20px rgba(228, 123, 66, 0.22);
+}
+
+.mystery-card.tier-all-timer::after {
+  opacity: 0.16;
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 226, 157, 0.7) 0 1px,
+    transparent 1.5px
+  );
+  background-size: 17px 17px;
+  animation: premium-spark 2.6s ease-out 1;
+}
+
+.mystery-card.tier-all-star {
+  --tier-accent: #f09b58;
+  --tier-glow: rgba(240, 155, 88, 0.34);
+  --tier-wash: rgba(228, 123, 66, 0.14);
+  --tier-identity: rgba(228, 123, 66, 0.13);
+  --tier-shadow: rgba(240, 155, 88, 0.32);
+  --tier-outline: rgba(240, 155, 88, 0.5);
+  --tier-inner-shadow: rgba(228, 123, 66, 0.14);
+  border-color: #af6d49;
+  background:
+    linear-gradient(145deg, rgba(228, 123, 66, 0.13), transparent 45%),
+    rgba(40, 31, 28, 0.86);
+  box-shadow: 0 0 16px rgba(228, 123, 66, 0.16);
+}
+
+.mystery-card.tier-solid {
+  --tier-accent: #d8df77;
+  --tier-glow: rgba(216, 223, 119, 0.24);
+  --tier-wash: rgba(216, 223, 119, 0.1);
+  --tier-identity: rgba(216, 223, 119, 0.11);
+  --tier-shadow: rgba(216, 223, 119, 0.22);
+  --tier-outline: rgba(216, 223, 119, 0.42);
+  --tier-inner-shadow: rgba(216, 223, 119, 0.1);
+  border-color: #858d4e;
+  background:
+    linear-gradient(145deg, rgba(216, 223, 119, 0.095), transparent 45%),
+    rgba(26, 31, 27, 0.84);
+}
+
+.mystery-card.tier-bench {
+  --tier-accent: #a9b1b4;
+  --tier-glow: rgba(169, 177, 180, 0.16);
+  --tier-wash: rgba(169, 177, 180, 0.065);
+  --tier-identity: rgba(169, 177, 180, 0.09);
+  --tier-shadow: rgba(169, 177, 180, 0.14);
+  --tier-outline: rgba(169, 177, 180, 0.3);
+  --tier-inner-shadow: rgba(169, 177, 180, 0.07);
+  border-color: #667074;
+  background:
+    linear-gradient(145deg, rgba(169, 177, 180, 0.06), transparent 44%),
+    rgba(25, 28, 30, 0.82);
+}
+
+.mystery-card.tier-bust {
+  --tier-accent: #77756b;
+  --tier-glow: rgba(104, 104, 91, 0.12);
+  --tier-wash: rgba(75, 78, 67, 0.12);
+  --tier-identity: rgba(71, 74, 63, 0.28);
+  --tier-shadow: rgba(42, 44, 39, 0.34);
+  --tier-outline: rgba(111, 112, 96, 0.2);
+  --tier-inner-shadow: rgba(48, 51, 44, 0.2);
+  border-color: #4e5048;
+  background:
+    linear-gradient(145deg, rgba(76, 80, 68, 0.14), transparent 48%),
+    rgba(28, 30, 28, 0.9);
+  filter: saturate(0.48) brightness(0.76);
+}
+
+@keyframes rarity-reveal {
+  from {
+    opacity: 0.1;
+    filter: saturate(0.45) brightness(0.68);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes selected-tier-pulse {
+  0%,
+  100% {
+    opacity: 0.08;
+  }
+  45% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes premium-spark {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  30%,
+  70% {
+    opacity: 0.16;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+}
+
 .card-topline {
   display: flex;
   align-items: center;

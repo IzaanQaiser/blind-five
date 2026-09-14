@@ -574,6 +574,14 @@ function App() {
                         : selectedOptionId !== null
                           ? 'is-locked'
                           : ''
+                    } ${
+                      revealedPlayers?.[option.optionId]
+                        ? `is-revealed tier-${revealedPlayers[
+                            option.optionId
+                          ].tier
+                            .toLowerCase()
+                            .replace('_', '-')}`
+                        : ''
                     }`}
                     data-testid="mystery-card"
                     key={option.optionId}
