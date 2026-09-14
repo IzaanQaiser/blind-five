@@ -123,6 +123,7 @@ button {
 }
 
 .brand-lockup,
+.topbar-actions,
 .game-status,
 .eyebrow-row,
 .bottom-note,
@@ -133,6 +134,50 @@ button {
 
 .brand-lockup {
   gap: 12px;
+}
+
+.topbar-actions {
+  gap: 18px;
+}
+
+.help-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 8px;
+  letter-spacing: 0.14em;
+}
+
+.help-button:hover {
+  color: var(--orange-soft);
+}
+
+.control-keycap {
+  display: inline-grid;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  place-items: center;
+  border: 1px solid rgba(216, 223, 119, 0.42);
+  border-radius: 2px;
+  background: rgba(216, 223, 119, 0.08);
+  color: var(--lime);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.help-button .control-keycap {
+  border-color: rgba(228, 123, 66, 0.55);
+  background: rgba(228, 123, 66, 0.08);
+  color: var(--orange-soft);
 }
 
 .brand-mark {
@@ -484,6 +529,14 @@ h1 em {
   transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
 }
 
+.powerup-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+}
+
 .game-shell.is-drafting .powerup-button {
   min-height: 50px;
   justify-content: center;
@@ -548,6 +601,13 @@ h1 em {
   color: var(--muted-dim);
 }
 
+.powerup-button.is-used .control-keycap,
+.powerup-button:disabled .control-keycap {
+  border-color: #403a3b;
+  background: transparent;
+  color: var(--muted-dim);
+}
+
 .powerup-description {
   color: var(--muted);
   font-size: 9px;
@@ -566,21 +626,26 @@ h1 em {
   display: flex;
   min-height: 38px;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
   gap: 4px;
   margin: 0;
   padding: 7px 9px;
   border-left: 2px solid var(--orange-soft);
   background: rgba(228, 123, 66, 0.08);
+  text-align: center;
 }
 
 .card-powerup-hint span {
+  max-width: 100%;
   color: var(--orange-soft);
   font-size: 7px;
   letter-spacing: 0.12em;
 }
 
 .card-powerup-hint strong {
+  max-width: 100%;
+  overflow-wrap: break-word;
   color: var(--chalk);
   font-size: 9px;
   font-weight: 500;
@@ -963,7 +1028,10 @@ h1 em {
 }
 
 .card-clue {
+  display: flex;
   min-height: 59px;
+  align-items: center;
+  justify-content: center;
   margin: 0;
   padding: 10px 9px;
   border-left: 2px solid rgba(216, 223, 119, 0.66);
@@ -971,6 +1039,9 @@ h1 em {
   color: var(--chalk);
   font-size: 10px;
   line-height: 1.45;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  text-align: center;
 }
 
 .pick-button,
@@ -1217,7 +1288,10 @@ h1 em {
 }
 
 .restart-button {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   min-width: 150px;
   margin: 24px auto 0;
   padding: 12px 18px;
@@ -1259,6 +1333,108 @@ h1 em {
 
 .game-footer span:last-child {
   color: var(--orange-soft);
+}
+
+.help-button:focus-visible,
+.help-close-button:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
+}
+
+.help-modal-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  padding: 24px;
+  place-items: center;
+  background: rgba(7, 7, 8, 0.78);
+  backdrop-filter: blur(5px);
+}
+
+.help-modal {
+  width: min(430px, 100%);
+  padding: clamp(22px, 4vw, 32px);
+  border: 1px solid var(--orange);
+  background:
+    linear-gradient(145deg, rgba(228, 123, 66, 0.1), transparent 48%),
+    var(--panel);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(228, 123, 66, 0.1);
+  animation: panel-arrive 220ms ease-out both;
+}
+
+.help-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.help-modal-header h2 {
+  margin: 7px 0 0;
+  color: var(--chalk);
+  font-family: var(--font-display);
+  font-size: 29px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.help-close-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.help-close-button:hover {
+  border-color: var(--orange);
+  color: var(--orange-soft);
+}
+
+.help-modal-intro {
+  margin: 18px 0 22px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.shortcut-list {
+  display: grid;
+  gap: 7px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 30px;
+  color: var(--chalk);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+.shortcut-row .control-keycap {
+  flex: 0 0 auto;
+}
+
+.help-modal-note {
+  margin: 24px 0 0;
+  color: var(--orange-soft);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-align: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

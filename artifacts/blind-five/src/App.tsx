@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   applyFranchisePlayer,
@@ -29,6 +29,7 @@ type PowerupDefinition = {
   id: PowerupId;
   label: string;
   description: string;
+  shortcut: string;
   field?: PowerupField;
 };
 
@@ -42,24 +43,28 @@ const powerupDefinitions: PowerupDefinition[] = [
     id: 'teamCheck',
     label: 'TEAM CHECK',
     description: 'Reveal all five teams',
+    shortcut: '1',
     field: 'teamHint',
   },
   {
     id: 'timeline',
     label: 'TIMELINE',
     description: 'Reveal all five timelines',
+    shortcut: '2',
     field: 'yearsActive',
   },
   {
     id: 'scout',
     label: 'SCOUT',
     description: 'Reveal all five scout notes',
+    shortcut: '3',
     field: 'scoutHint',
   },
   {
     id: 'franchisePlayer',
     label: 'FRANCHISE PLAYER',
     description: 'Reroll this board with at least one ALL-TIMER guaranteed',
+    shortcut: '4',
   },
 ];
 
@@ -73,6 +78,13 @@ const positionDetails: Record<Position, string> = {
 
 function formatTier(tier: Player['tier']) {
   return tier.replace('_', ' ');
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(target.closest('input, select, textarea, [contenteditable="true"]'))
+  );
 }
 
 function App() {
@@ -101,6 +113,7 @@ function App() {
   );
   const [finalBoards, setFinalBoards] = useState<FinalBoardHistory>({});
   const [draftEfficiency, setDraftEfficiency] = useState<number | null>(null);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const currentPosition = POSITIONS[currentPositionIndex];
   const revealedPowerups = powerupDefinitions.filter(
@@ -286,6 +299,68 @@ function App() {
     setDraftEfficiency(null);
   };
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        if (isHelpOpen) {
+          event.preventDefault();
+          setIsHelpOpen(false);
+        }
+        return;
+      }
+
+      if (event.key === '?') {
+        event.preventDefault();
+        setIsHelpOpen(true);
+        return;
+      }
+
+      if (isHelpOpen || isEditableTarget(event.target)) {
+        return;
+      }
+
+      const shortcutPowerups: Record<string, PowerupId> = {
+        '1': 'teamCheck',
+        '2': 'timeline',
+        '3': 'scout',
+        '4': 'franchisePlayer',
+      };
+      const powerupId = shortcutPowerups[event.key];
+
+      if (powerupId) {
+        if (isDraftComplete || !canUsePowerup(powerupId, usedPowerups, selectedOptionId)) {
+          return;
+        }
+
+        event.preventDefault();
+        handleUsePowerup(powerupId);
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'r') {
+        event.preventDefault();
+
+        if (isDraftComplete || window.confirm('Restart this draft?')) {
+          handleRestart();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    currentPowerupReveals,
+    isDraftComplete,
+    isHelpOpen,
+    round,
+    selectedOptionId,
+    usedPowerups,
+  ]);
+
   return (
     <main
       className={`game-shell ${isDraftComplete ? 'is-complete' : 'is-drafting'}`}
@@ -300,12 +375,23 @@ function App() {
           </span>
           <span className="brand-name">BLIND FIVE</span>
         </div>
-        <div
-          className={`game-status ${isDraftComplete ? 'is-complete' : ''}`}
-          data-testid="status-game"
-        >
-          <span className="status-dot" aria-hidden="true" />
-          <span>{isDraftComplete ? 'FINAL WHISTLE' : 'PRE-GAME'}</span>
+        <div className="topbar-actions">
+          <button
+            className="help-button"
+            type="button"
+            onClick={() => setIsHelpOpen(true)}
+            aria-label="Open Blind Five help"
+          >
+            <span>HELP</span>
+            <kbd className="control-keycap">?</kbd>
+          </button>
+          <div
+            className={`game-status ${isDraftComplete ? 'is-complete' : ''}`}
+            data-testid="status-game"
+          >
+            <span className="status-dot" aria-hidden="true" />
+            <span>{isDraftComplete ? 'FINAL WHISTLE' : 'PRE-GAME'}</span>
+          </div>
         </div>
       </header>
 
@@ -492,7 +578,8 @@ function App() {
               onClick={handleRestart}
               data-testid="draft-again"
             >
-              Draft Again
+              <span>Draft Again</span>
+              <kbd className="control-keycap">R</kbd>
             </button>
               </>
             )}
@@ -531,7 +618,10 @@ function App() {
                       onClick={() => handleUsePowerup(powerup.id)}
                       data-testid={`powerup-${powerup.id}`}
                     >
-                      <span className="powerup-label">{powerup.label}</span>
+                      <span className="powerup-label-row">
+                        <span className="powerup-label">{powerup.label}</span>
+                        <kbd className="control-keycap">{powerup.shortcut}</kbd>
+                      </span>
                       <span className="powerup-description">
                         {isUsed
                           ? 'USED'
@@ -690,6 +780,61 @@ function App() {
         <span>BUILD YOUR FIVE</span>
         <span>READY</span>
       </footer>
+
+      {isHelpOpen ? (
+        <div
+          className="help-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              setIsHelpOpen(false);
+            }
+          }}
+        >
+          <section
+            className="help-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="help-modal-title"
+          >
+            <div className="help-modal-header">
+              <div>
+                <span className="round-kicker">QUICK REFERENCE</span>
+                <h2 id="help-modal-title">HOW TO PLAY</h2>
+              </div>
+              <button
+                className="help-close-button"
+                type="button"
+                onClick={() => setIsHelpOpen(false)}
+                aria-label="Close help"
+              >
+                ×
+              </button>
+            </div>
+            <p className="help-modal-intro">
+              Scout the clues, spend your tools before the pick, and build the
+              best possible starting five.
+            </p>
+            <div className="shortcut-list">
+              {[
+                ['1', 'Team Check'],
+                ['2', 'Timeline'],
+                ['3', 'Scout'],
+                ['4', 'Franchise Player'],
+                ['R', 'Restart / Draft Again'],
+                ['?', 'Open Help'],
+                ['Esc', 'Close Help'],
+              ].map(([key, label]) => (
+                <div className="shortcut-row" key={key}>
+                  <kbd className="control-keycap">{key}</kbd>
+                  <span>{label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="help-modal-note">SHORTCUTS PAUSE WHILE THIS WINDOW IS OPEN</p>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
