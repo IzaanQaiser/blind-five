@@ -585,6 +585,11 @@ function App() {
                     }`}
                     data-testid="mystery-card"
                     key={option.optionId}
+                    aria-label={
+                      revealedPlayers?.[option.optionId]
+                        ? `${revealedPlayers[option.optionId].name}, ${formatTier(revealedPlayers[option.optionId].tier)}`
+                        : 'Mystery player'
+                    }
                   >
                     <div className="card-topline">
                       <span>
@@ -599,27 +604,14 @@ function App() {
                       </span>
                     </div>
 
-                    <div
-                      className={`card-identity ${
-                        revealedPlayers?.[option.optionId] ? 'is-revealed' : ''
-                      }`}
-                      aria-label={
-                        revealedPlayers?.[option.optionId]
-                          ? `${revealedPlayers[option.optionId].name}, ${formatTier(revealedPlayers[option.optionId].tier)}`
-                          : 'Mystery player'
-                      }
-                    >
-                      {revealedPlayers?.[option.optionId] ? (
-                        <div className="card-reveal" aria-live="polite">
-                          <strong>{revealedPlayers[option.optionId].name}</strong>
-                          <span>
-                            {formatTier(revealedPlayers[option.optionId].tier)}
-                          </span>
-                        </div>
-                      ) : (
-                        '?'
-                      )}
-                    </div>
+                    {revealedPlayers?.[option.optionId] ? (
+                      <div className="card-reveal card-reveal-header" aria-live="polite">
+                        <strong>{revealedPlayers[option.optionId].name}</strong>
+                        <span>
+                          {formatTier(revealedPlayers[option.optionId].tier)}
+                        </span>
+                      </div>
+                    ) : null}
 
                     <div className="card-clues">
                       {option.hints.map((hint, hintIndex) => (

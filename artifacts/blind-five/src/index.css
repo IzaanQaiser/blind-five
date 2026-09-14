@@ -745,17 +745,6 @@ h1 em {
   );
 }
 
-.mystery-card.is-revealed .card-identity {
-  border-color: var(--tier-accent);
-  background: var(--tier-identity);
-  color: var(--tier-accent);
-  box-shadow: 0 0 18px var(--tier-shadow);
-}
-
-.mystery-card.is-revealed .card-reveal span {
-  color: var(--tier-accent);
-}
-
 .mystery-card.is-locked.is-revealed {
   opacity: 0.56;
   filter: saturate(0.76) brightness(0.78);
@@ -773,6 +762,15 @@ h1 em {
   transform: translateY(-3px) scale(1.018);
 }
 
+.mystery-card.is-revealed .card-reveal span {
+  color: var(--tier-accent);
+}
+
+.mystery-card.is-selected.is-revealed .card-reveal strong {
+  color: #fff2d4;
+  font-size: 23px;
+}
+
 .mystery-card.is-selected.is-revealed::after {
   opacity: 0.22;
   animation: selected-tier-pulse 1.4s ease-out 1;
@@ -782,7 +780,6 @@ h1 em {
   --tier-accent: #f6bd62;
   --tier-glow: rgba(246, 189, 98, 0.42);
   --tier-wash: rgba(228, 123, 66, 0.2);
-  --tier-identity: rgba(228, 123, 66, 0.18);
   --tier-shadow: rgba(246, 189, 98, 0.5);
   --tier-outline: rgba(255, 216, 137, 0.64);
   --tier-inner-shadow: rgba(228, 123, 66, 0.22);
@@ -810,7 +807,6 @@ h1 em {
   --tier-accent: #f09b58;
   --tier-glow: rgba(240, 155, 88, 0.34);
   --tier-wash: rgba(228, 123, 66, 0.14);
-  --tier-identity: rgba(228, 123, 66, 0.13);
   --tier-shadow: rgba(240, 155, 88, 0.32);
   --tier-outline: rgba(240, 155, 88, 0.5);
   --tier-inner-shadow: rgba(228, 123, 66, 0.14);
@@ -825,7 +821,6 @@ h1 em {
   --tier-accent: #d8df77;
   --tier-glow: rgba(216, 223, 119, 0.24);
   --tier-wash: rgba(216, 223, 119, 0.1);
-  --tier-identity: rgba(216, 223, 119, 0.11);
   --tier-shadow: rgba(216, 223, 119, 0.22);
   --tier-outline: rgba(216, 223, 119, 0.42);
   --tier-inner-shadow: rgba(216, 223, 119, 0.1);
@@ -839,7 +834,6 @@ h1 em {
   --tier-accent: #a9b1b4;
   --tier-glow: rgba(169, 177, 180, 0.16);
   --tier-wash: rgba(169, 177, 180, 0.065);
-  --tier-identity: rgba(169, 177, 180, 0.09);
   --tier-shadow: rgba(169, 177, 180, 0.14);
   --tier-outline: rgba(169, 177, 180, 0.3);
   --tier-inner-shadow: rgba(169, 177, 180, 0.07);
@@ -853,7 +847,6 @@ h1 em {
   --tier-accent: #77756b;
   --tier-glow: rgba(104, 104, 91, 0.12);
   --tier-wash: rgba(75, 78, 67, 0.12);
-  --tier-identity: rgba(71, 74, 63, 0.28);
   --tier-shadow: rgba(42, 44, 39, 0.34);
   --tier-outline: rgba(111, 112, 96, 0.2);
   --tier-inner-shadow: rgba(48, 51, 44, 0.2);
@@ -923,54 +916,32 @@ h1 em {
   color: var(--muted-dim);
 }
 
-.card-identity {
-  display: grid;
-  width: 64px;
-  height: 64px;
-  margin: 26px auto 22px;
-  place-items: center;
-  border: 1px solid #65534a;
-  background: rgba(228, 123, 66, 0.035);
-  color: var(--orange);
-  font-family: var(--font-display);
-  font-size: 50px;
-  font-weight: 700;
-  line-height: 1;
-  transition: border-color 180ms ease, background-color 180ms ease;
-}
-
-.game-shell.is-drafting .card-identity {
-  margin-top: 18px;
-  margin-bottom: 16px;
-}
-
-.mystery-card.is-selected .card-identity {
-  border-color: var(--orange);
-  background: rgba(228, 123, 66, 0.08);
-}
-
-.card-identity.is-revealed {
-  width: 100%;
-  min-height: 64px;
-  height: auto;
-  padding: 9px 6px;
-  text-align: center;
-}
-
 .card-reveal {
   display: flex;
+  min-height: 72px;
+  margin: 12px 0 12px;
+  padding: 5px 4px 4px;
   flex-direction: column;
   gap: 5px;
   align-items: center;
+  justify-content: center;
+  text-align: center;
   animation: card-reveal-in 220ms ease-out both;
 }
 
 .card-reveal strong {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
   color: var(--chalk);
   font-family: var(--font-display);
   font-size: 20px;
   letter-spacing: 0.04em;
-  line-height: 1;
+  line-height: 0.94;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .card-reveal span {
@@ -1445,14 +1416,6 @@ h1 em {
   .mystery-card {
     min-height: 350px;
     padding: 13px;
-  }
-
-  .card-identity {
-    width: 54px;
-    height: 54px;
-    margin-top: 20px;
-    margin-bottom: 17px;
-    font-size: 43px;
   }
 
   .card-clue {
