@@ -56,7 +56,6 @@ it('validates the canonical CSV player pool shape', () => {
     expect(player.scoutHint).not.toBe('');
     expect(player.extraHint1).not.toBe('');
     expect(player.extraHint2).not.toBe('');
-    expect(Number.isFinite(player.tierValue)).toBe(true);
     expect(Number.isFinite(player.recommendedDrawWeight)).toBe(true);
   }
 

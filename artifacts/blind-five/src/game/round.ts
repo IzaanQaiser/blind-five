@@ -29,6 +29,8 @@ const weightedTiers: Array<{ tier: Tier; upperBound: number }> = [
   { tier: 'BUST', upperBound: 1 },
 ];
 
+const premiumTiers: readonly Tier[] = ['ALL_TIMER', 'ALL_STAR'];
+
 function normalizeRandomValue(random: RandomSource): number {
   const value = random();
 
@@ -43,9 +45,7 @@ function shuffle<T>(items: readonly T[], random: RandomSource): T[] {
   const shuffled = [...items];
 
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(
-      normalizeRandomValue(random) * (index + 1),
-    );
+    const swapIndex = Math.floor(normalizeRandomValue(random) * (index + 1));
     [shuffled[index], shuffled[swapIndex]] = [
       shuffled[swapIndex],
       shuffled[index],
@@ -58,8 +58,7 @@ function shuffle<T>(items: readonly T[], random: RandomSource): T[] {
 function selectWeightedTier(random: RandomSource): Tier {
   const value = normalizeRandomValue(random);
   return (
-    weightedTiers.find(({ upperBound }) => value < upperBound)?.tier ??
-    'BUST'
+    weightedTiers.find(({ upperBound }) => value < upperBound)?.tier ?? 'BUST'
   );
 }
 
@@ -103,11 +102,19 @@ export function createRound(
     selectedTiers[guaranteedSlot] = 'ALL_TIMER';
   }
 
+  if (!selectedTiers.some((tier) => premiumTiers.includes(tier))) {
+    const guaranteedSlot = Math.floor(
+      normalizeRandomValue(random) * selectedTiers.length,
+    );
+    selectedTiers[guaranteedSlot] = 'ALL_STAR';
+  }
+
   const selectedPlayerIds = new Set<string>();
   const selectedPlayers = selectedTiers.map((tier) => {
     const playersInTier = positionPlayers.filter(
       (positionPlayer) =>
-        positionPlayer.tier === tier && !selectedPlayerIds.has(positionPlayer.id),
+        positionPlayer.tier === tier &&
+        !selectedPlayerIds.has(positionPlayer.id),
     );
 
     const player = selectRandomPlayer(playersInTier, random);
@@ -124,14 +131,10 @@ export function createRound(
 
     return {
       optionId,
-    hints: shuffle(
-      [
-          player.positiveHint,
-          player.negativeHint,
-          player.neutralHint,
-      ],
-      random,
-    ),
+      hints: shuffle(
+        [player.positiveHint, player.negativeHint, player.neutralHint],
+        random,
+      ),
     };
   });
 
@@ -155,10 +158,7 @@ export function applyFranchisePlayer(
   return createRound(round.position, random, true);
 }
 
-export function resolveMysteryPlayer(
-  round: MysteryRound,
-  optionId: string,
-) {
+export function resolveMysteryPlayer(round: MysteryRound, optionId: string) {
   const playerId = playerIdsByRound.get(round)?.get(optionId);
   return players.find((player) => player.id === playerId);
 }

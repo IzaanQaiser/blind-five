@@ -2,35 +2,39 @@ import type { MysteryRound } from './round';
 import type { Player } from '@/types/player';
 
 export type PowerupId =
-  | 'teamCheck'
-  | 'timeline'
-  | 'scout'
-  | 'franchisePlayer';
+  'teamCheck' | 'timeline' | 'revealBoard' | 'franchisePlayer';
 
-export type PowerupField = 'teamHint' | 'yearsActive' | 'scoutHint';
+export type PowerupRevealId = 'teamCheck' | 'timeline';
+
+export type PowerupField = 'teamHint' | 'yearsActive';
 
 export type PowerupReveals = Partial<
-  Record<Exclude<PowerupId, 'franchisePlayer'>, Record<string, string>>
+  Record<PowerupRevealId, Record<string, string>>
 >;
 
 export type UsedPowerups = Record<PowerupId, boolean>;
 
-const revealFields: Record<
-  Exclude<PowerupId, 'franchisePlayer'>,
-  PowerupField
-> = {
+const revealFields: Record<PowerupRevealId, PowerupField> = {
   teamCheck: 'teamHint',
   timeline: 'yearsActive',
-  scout: 'scoutHint',
 };
 
 export function createPowerupState(): UsedPowerups {
   return {
     teamCheck: false,
     timeline: false,
-    scout: false,
+    revealBoard: false,
     franchisePlayer: false,
   };
+}
+
+export function countNewlyUsedPowerups(
+  usedPowerups: UsedPowerups,
+  boardStartState: UsedPowerups,
+): number {
+  return (Object.keys(usedPowerups) as PowerupId[]).filter(
+    (powerupId) => usedPowerups[powerupId] && !boardStartState[powerupId],
+  ).length;
 }
 
 export function canUsePowerup(
@@ -72,14 +76,30 @@ export function resolvePowerupValues(
   }, {});
 }
 
+export function resolveBoardPlayers(
+  round: MysteryRound,
+  resolvePlayer: (round: MysteryRound, optionId: string) => Player | undefined,
+): Record<string, Player> {
+  return round.options.reduce<Record<string, Player>>((values, option) => {
+    const player = resolvePlayer(round, option.optionId);
+
+    if (!player) {
+      throw new Error(`Unable to resolve mystery option ${option.optionId}`);
+    }
+
+    values[option.optionId] = player;
+    return values;
+  }, {});
+}
+
 export function refreshPowerupReveals(
   round: MysteryRound,
   currentReveals: PowerupReveals,
   resolvePlayer: (round: MysteryRound, optionId: string) => Player | undefined,
 ): PowerupReveals {
-  return (Object.keys(revealFields) as Array<
-    Exclude<PowerupId, 'franchisePlayer'>
-  >).reduce<PowerupReveals>((reveals, powerupId) => {
+  return (
+    Object.keys(revealFields) as PowerupRevealId[]
+  ).reduce<PowerupReveals>((reveals, powerupId) => {
     if (currentReveals[powerupId]) {
       reveals[powerupId] = resolvePowerupValues(
         round,

@@ -1,8 +1,4 @@
-import type {
-  Player,
-  Position,
-  SourceTier,
-} from '@/types/player';
+import type { Player, Position, SourceTier } from '@/types/player';
 
 import playerCsv from '@assets/build_five_-_Sheet1_1789411320234.csv?raw';
 
@@ -11,7 +7,6 @@ const requiredHeaders = [
   'Name',
   'Pos',
   'tier',
-  'tierValue',
   'recommendedDrawWeight',
   'Positive',
   'Negative',
@@ -146,12 +141,6 @@ function parsePlayers(csv: string): readonly Player[] {
         'extraHint1',
         rowNumber,
       );
-      const buildRatingHeader = headerIndex.buildRating;
-      const buildRatingValue =
-        buildRatingHeader === undefined
-          ? undefined
-          : row[buildRatingHeader]?.trim();
-
       if (!(sourceTier in tierMap)) {
         throw new Error(`Invalid tier at CSV row ${rowNumber}`);
       }
@@ -168,27 +157,17 @@ function parsePlayers(csv: string): readonly Player[] {
         position,
         tier: tierMap[sourceTier],
         sourceTier,
-        tierValue: numericValue(row, headerIndex, 'tierValue', rowNumber),
         recommendedDrawWeight: numericValue(
           row,
           headerIndex,
           'recommendedDrawWeight',
           rowNumber,
         ),
-        buildRating:
-          buildRatingValue === undefined || buildRatingValue === ''
-            ? undefined
-            : numericValue(row, headerIndex, 'buildRating', rowNumber),
         positiveHint: requiredValue(row, headerIndex, 'Positive', rowNumber),
         negativeHint: requiredValue(row, headerIndex, 'Negative', rowNumber),
         neutralHint: requiredValue(row, headerIndex, 'Neutral', rowNumber),
         teamHint: extraHint1,
-        yearsActive: requiredValue(
-          row,
-          headerIndex,
-          'years active',
-          rowNumber,
-        ),
+        yearsActive: requiredValue(row, headerIndex, 'years active', rowNumber),
         scoutHint: requiredValue(row, headerIndex, 'scout hint', rowNumber),
         extraHint1,
         extraHint2: requiredValue(row, headerIndex, 'extraHint2', rowNumber),

@@ -28,9 +28,7 @@ export interface Player {
   position: Position;
   tier: Tier;
   sourceTier: SourceTier;
-  tierValue: number;
   recommendedDrawWeight: number;
-  buildRating?: number;
   positiveHint: string;
   negativeHint: string;
   neutralHint: string;
