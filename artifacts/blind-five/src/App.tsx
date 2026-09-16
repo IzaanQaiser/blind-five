@@ -7,22 +7,29 @@ import {
 } from './game/round';
 import {
   canUsePowerup,
+  countNewlyUsedPowerups,
   consumePowerup,
   createPowerupState,
   refreshPowerupReveals,
+  resolveBoardPlayers,
   resolvePowerupValues,
   type PowerupField,
   type PowerupId,
+  type PowerupRevealId,
   type PowerupReveals,
-  type UsedPowerups,
 } from './game/powerups';
 import {
-  completeFinalBoardHistory,
-  createDraftComparison,
-  recordFinalBoard,
-  type FinalBoardHistory,
-} from './game/results';
-import { getTeamPercentileLabel, type ProjectedRecord } from './game/scoring';
+  calculateFinalScore,
+  calculatePickScore,
+  formatScore,
+  getNextPersonalBest,
+  getPowerupMultiplier,
+  normalizeScore,
+  PLAYER_TIER_POINTS,
+  POWERUP_MULTIPLIERS,
+  selectBestScoringPlayer,
+  type PickScoreBreakdown,
+} from './game/scoring';
 import { POSITIONS, type Player, type Position } from './types/player';
 
 type PowerupDefinition = {
@@ -34,37 +41,36 @@ type PowerupDefinition = {
 };
 
 type RevealPowerupDefinition = Omit<PowerupDefinition, 'id' | 'field'> & {
-  id: Exclude<PowerupId, 'franchisePlayer'>;
+  id: PowerupRevealId;
   field: PowerupField;
 };
 
 const powerupDefinitions: PowerupDefinition[] = [
   {
     id: 'teamCheck',
-    label: 'TEAM CHECK',
-    description: 'Reveals all five teams for the current board.',
+    label: 'EXTRA HINT',
+    description: 'Reveals an extra hint for each player.',
     shortcut: '1',
     field: 'teamHint',
   },
   {
     id: 'timeline',
     label: 'TIMELINE',
-    description: 'Reveals all five career timelines and years active.',
+    description: 'Reveals years active for each player.',
     shortcut: '2',
     field: 'yearsActive',
   },
   {
-    id: 'scout',
-    label: 'SCOUT',
-    description: 'Reveals all five scout notes.',
+    id: 'revealBoard',
+    label: 'REVEAL BOARD',
+    description: 'Reveals every player and tier on the current board.',
     shortcut: '3',
-    field: 'scoutHint',
   },
   {
     id: 'franchisePlayer',
     label: 'FRANCHISE PLAYER',
     description:
-      'Rerolls or adjusts the current board so at least one top-tier player is guaranteed, without revealing which one.',
+      'Shuffles the board to guarantee at least one all-timer on the board.',
     shortcut: '4',
   },
 ];
@@ -77,8 +83,31 @@ const positionDetails: Record<Position, string> = {
   C: 'CHOOSE YOUR CENTER',
 };
 
+const PERSONAL_BEST_STORAGE_KEY = 'blind-five-personal-best';
+
 function formatTier(tier: Player['tier']) {
   return tier.replace('_', ' ');
+}
+
+function formatRunningPenalty(
+  multiplier: number,
+  rawScore: number,
+  totalScore: number,
+) {
+  if (rawScore === 0) {
+    return multiplier.toFixed(2);
+  }
+
+  for (let decimals = 2; decimals <= 4; decimals += 1) {
+    const displayedMultiplier = Number(multiplier.toFixed(decimals));
+    if (
+      formatScore(rawScore * displayedMultiplier) === formatScore(totalScore)
+    ) {
+      return multiplier.toFixed(decimals);
+    }
+  }
+
+  return multiplier.toFixed(4);
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -94,7 +123,9 @@ function getInitialHowToPlayOpen() {
   }
 
   try {
-    return window.localStorage.getItem('blind-five-how-to-play-seen') !== 'true';
+    return (
+      window.localStorage.getItem('blind-five-how-to-play-seen') !== 'true'
+    );
   } catch {
     return false;
   }
@@ -108,32 +139,59 @@ function persistHowToPlayDismissal() {
   }
 }
 
+function getInitialPersonalBest(): number | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const storedValue = window.localStorage.getItem(PERSONAL_BEST_STORAGE_KEY);
+
+    if (storedValue === null) {
+      return null;
+    }
+
+    const parsedValue = Number(storedValue);
+    return Number.isFinite(parsedValue) ? normalizeScore(parsedValue) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistPersonalBest(score: number) {
+  try {
+    window.localStorage.setItem(
+      PERSONAL_BEST_STORAGE_KEY,
+      String(normalizeScore(score)),
+    );
+  } catch {
+    // The completed score still works when storage is unavailable.
+  }
+}
+
 function App() {
   const [currentPositionIndex, setCurrentPositionIndex] = useState(0);
   const [round, setRound] = useState(() => createRound(POSITIONS[0]));
   const [lineup, setLineup] = useState<Partial<Record<Position, Player>>>({});
   const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
-  const [revealedPlayers, setRevealedPlayers] = useState<
-    Record<string, Player> | null
-  >(null);
+  const [revealedPlayers, setRevealedPlayers] = useState<Record<
+    string,
+    Player
+  > | null>(null);
   const [usedPowerups, setUsedPowerups] = useState(createPowerupState);
+  const [boardStartPowerups, setBoardStartPowerups] =
+    useState(createPowerupState);
   const [currentPowerupReveals, setCurrentPowerupReveals] =
     useState<PowerupReveals>({});
   const [isDraftComplete, setIsDraftComplete] = useState(false);
-  const [seasonResult, setSeasonResult] = useState<ProjectedRecord | null>(
-    null,
-  );
-  const [bestAvailableSeasonResult, setBestAvailableSeasonResult] =
-    useState<ProjectedRecord | null>(null);
-  const [bestAvailableLineup, setBestAvailableLineup] = useState<
-    Player[] | null
-  >(null);
-  const [draftScore, setDraftScore] = useState<number | null>(null);
-  const [bestAvailableScore, setBestAvailableScore] = useState<number | null>(
-    null,
-  );
-  const [finalBoards, setFinalBoards] = useState<FinalBoardHistory>({});
-  const [draftEfficiency, setDraftEfficiency] = useState<number | null>(null);
+  const [pickScores, setPickScores] = useState<
+    Partial<Record<Position, PickScoreBreakdown>>
+  >({});
+  const [bestPossibleLineup, setBestPossibleLineup] = useState<
+    Partial<Record<Position, Player>>
+  >({});
+  const [personalBest, setPersonalBest] = useState(getInitialPersonalBest);
+  const [isNewPersonalBest, setIsNewPersonalBest] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isHowToPlayOpen, setIsHowToPlayOpen] = useState(
     getInitialHowToPlayOpen,
@@ -141,9 +199,38 @@ function App() {
   const modalRef = useRef<HTMLElement>(null);
 
   const currentPosition = POSITIONS[currentPositionIndex];
+  const currentBoardPowerupsUsed = countNewlyUsedPowerups(
+    usedPowerups,
+    boardStartPowerups,
+  );
+  const currentPickScore = pickScores[currentPosition];
+  const liveScore = calculateFinalScore(Object.values(pickScores));
+  const rawScore = Object.values(pickScores).reduce(
+    (total, pickScore) => total + pickScore.basePoints,
+    0,
+  );
+  const runningPowerupPenalty =
+    rawScore === 0
+      ? getPowerupMultiplier(currentBoardPowerupsUsed)
+      : liveScore / rawScore;
+  const runningPowerupPenaltyLabel = formatRunningPenalty(
+    runningPowerupPenalty,
+    rawScore,
+    liveScore,
+  );
+  const bestPossibleScore = calculateFinalScore(
+    POSITIONS.flatMap((position) => {
+      const player = bestPossibleLineup[position];
+      const pickScore = pickScores[position];
+
+      return player && pickScore
+        ? [calculatePickScore(player.tier, pickScore.powerupsUsed)]
+        : [];
+    }),
+  );
   const revealedPowerups = powerupDefinitions.filter(
     (powerup): powerup is RevealPowerupDefinition => {
-      if (!powerup.field || powerup.id === 'franchisePlayer') {
+      if (powerup.id !== 'teamCheck' && powerup.id !== 'timeline') {
         return false;
       }
 
@@ -162,27 +249,26 @@ function App() {
       throw new Error(`Unable to resolve mystery option ${optionId}`);
     }
 
-    const playersByOption = round.options.reduce<Record<string, Player>>(
-      (resolvedPlayers, option) => {
-        const player = resolveMysteryPlayer(round, option.optionId);
-
-        if (!player) {
-          throw new Error(
-            `Unable to resolve mystery option ${option.optionId}`,
-          );
-        }
-
-        resolvedPlayers[option.optionId] = player;
-        return resolvedPlayers;
-      },
-      {},
-    );
+    const playersByOption = resolveBoardPlayers(round, resolveMysteryPlayer);
 
     setSelectedOptionId(optionId);
     setRevealedPlayers(playersByOption);
+    setBestPossibleLineup((currentLineup) => ({
+      ...currentLineup,
+      [currentPosition]: selectBestScoringPlayer(
+        Object.values(playersByOption),
+      ),
+    }));
     setLineup((currentLineup) => ({
       ...currentLineup,
       [currentPosition]: selectedPlayer,
+    }));
+    setPickScores((currentScores) => ({
+      ...currentScores,
+      [currentPosition]: calculatePickScore(
+        selectedPlayer.tier,
+        currentBoardPowerupsUsed,
+      ),
     }));
   };
 
@@ -203,16 +289,24 @@ function App() {
     if (powerupId === 'franchisePlayer') {
       const nextRound = applyFranchisePlayer(round);
       setRound(nextRound);
-      setRevealedPlayers(null);
+      setRevealedPlayers(
+        usedPowerups.revealBoard
+          ? resolveBoardPlayers(nextRound, resolveMysteryPlayer)
+          : null,
+      );
       setUsedPowerups((currentState) =>
         consumePowerup(currentState, powerupId),
       );
       setCurrentPowerupReveals((currentReveals) =>
-        refreshPowerupReveals(
-          nextRound,
-          currentReveals,
-          resolveMysteryPlayer,
-        ),
+        refreshPowerupReveals(nextRound, currentReveals, resolveMysteryPlayer),
+      );
+      return;
+    }
+
+    if (powerupId === 'revealBoard') {
+      setRevealedPlayers(resolveBoardPlayers(round, resolveMysteryPlayer));
+      setUsedPowerups((currentState) =>
+        consumePowerup(currentState, powerupId),
       );
       return;
     }
@@ -244,61 +338,32 @@ function App() {
     }
 
     if (currentPositionIndex === POSITIONS.length - 1) {
-      const draftedLineup = POSITIONS.map((position) => {
-        const player = lineup[position];
+      const completedPickScores = POSITIONS.map((position) => {
+        const score = pickScores[position];
 
-        if (!player) {
-          throw new Error(`Missing lineup player for position ${position}`);
+        if (!score) {
+          throw new Error(`Missing pick score for position ${position}`);
         }
 
-        return player;
+        return score;
       });
-
-      const finalBoard = round.options.map((option) => {
-        const player = revealedPlayers[option.optionId];
-
-        if (!player) {
-          throw new Error(`Missing final board player for ${option.optionId}`);
-        }
-
-        return player;
-      });
-      const nextFinalBoards = recordFinalBoard(
-        finalBoards,
-        currentPosition,
-        finalBoard,
-      );
-      const completeHistory = completeFinalBoardHistory(nextFinalBoards);
-      const comparison = createDraftComparison(
-        draftedLineup,
-        completeHistory,
+      const completedScore = calculateFinalScore(completedPickScores);
+      const nextPersonalBest = getNextPersonalBest(
+        personalBest,
+        completedScore,
       );
 
-      setFinalBoards(nextFinalBoards);
-      setBestAvailableLineup(comparison.bestAvailableLineup);
-      setSeasonResult(comparison.projectedRecord);
-      setBestAvailableSeasonResult(comparison.bestAvailableRecord);
-      setDraftScore(comparison.draftScore);
-      setBestAvailableScore(comparison.bestAvailableScore);
-      setDraftEfficiency(comparison.draftEfficiency);
+      setIsNewPersonalBest(
+        personalBest === null || completedScore > personalBest,
+      );
+      setPersonalBest(nextPersonalBest);
+      persistPersonalBest(nextPersonalBest);
       setIsDraftComplete(true);
       return;
     }
 
-    const finalBoard = round.options.map((option) => {
-      const player = revealedPlayers[option.optionId];
-
-      if (!player) {
-        throw new Error(`Missing final board player for ${option.optionId}`);
-      }
-
-      return player;
-    });
-
     const nextPositionIndex = currentPositionIndex + 1;
-    setFinalBoards((currentHistory) =>
-      recordFinalBoard(currentHistory, currentPosition, finalBoard),
-    );
+    setBoardStartPowerups(usedPowerups);
     setCurrentPositionIndex(nextPositionIndex);
     setRound(createRound(POSITIONS[nextPositionIndex]));
     setSelectedOptionId(null);
@@ -313,25 +378,17 @@ function App() {
     setSelectedOptionId(null);
     setRevealedPlayers(null);
     setUsedPowerups(createPowerupState());
+    setBoardStartPowerups(createPowerupState());
     setCurrentPowerupReveals({});
     setIsDraftComplete(false);
-    setSeasonResult(null);
-    setBestAvailableSeasonResult(null);
-    setBestAvailableLineup(null);
-    setDraftScore(null);
-    setBestAvailableScore(null);
-    setFinalBoards({});
-    setDraftEfficiency(null);
+    setPickScores({});
+    setBestPossibleLineup({});
+    setIsNewPersonalBest(false);
   };
 
   const closeHowToPlay = () => {
     persistHowToPlayDismissal();
     setIsHowToPlayOpen(false);
-  };
-
-  const openHowToPlay = () => {
-    setIsHelpOpen(false);
-    setIsHowToPlayOpen(true);
   };
 
   useEffect(() => {
@@ -405,13 +462,16 @@ function App() {
       const shortcutPowerups: Record<string, PowerupId> = {
         '1': 'teamCheck',
         '2': 'timeline',
-        '3': 'scout',
+        '3': 'revealBoard',
         '4': 'franchisePlayer',
       };
       const powerupId = shortcutPowerups[event.key];
 
       if (powerupId) {
-        if (isDraftComplete || !canUsePowerup(powerupId, usedPowerups, selectedOptionId)) {
+        if (
+          isDraftComplete ||
+          !canUsePowerup(powerupId, usedPowerups, selectedOptionId)
+        ) {
           return;
         }
 
@@ -420,12 +480,19 @@ function App() {
         return;
       }
 
+      if (
+        event.key.toLowerCase() === 'n' &&
+        selectedOptionId !== null &&
+        !isDraftComplete
+      ) {
+        event.preventDefault();
+        handleContinue();
+        return;
+      }
+
       if (event.key.toLowerCase() === 'r') {
         event.preventDefault();
-
-        if (isDraftComplete || window.confirm('Restart this draft?')) {
-          handleRestart();
-        }
+        handleRestart();
       }
     };
 
@@ -455,16 +522,34 @@ function App() {
           </span>
           <span className="brand-name">BLIND FIVE</span>
         </div>
+        <button
+          className="topbar-restart-button"
+          type="button"
+          onClick={handleRestart}
+          aria-label="Restart draft. Keyboard shortcut R"
+        >
+          <kbd className="control-keycap">R</kbd>
+          <span>RESTART DRAFT</span>
+        </button>
         <div className="topbar-actions">
-          <button
-            className="help-button"
-            type="button"
-            onClick={() => setIsHelpOpen(true)}
-            aria-label="Open Blind Five help"
-          >
-            <span>HELP</span>
-            <kbd className="control-keycap">?</kbd>
-          </button>
+          <div className="live-score" data-testid="live-score">
+            <div className="score-equation-value">
+              <span>RAW SCORE</span>
+              <strong>{rawScore.toFixed(2)}</strong>
+            </div>
+            <em className="score-equation-operator">×</em>
+            <div className="score-equation-value score-equation-penalty">
+              <span>PENALTY</span>
+              <strong key={`${liveScore}-${currentBoardPowerupsUsed}`}>
+                {runningPowerupPenaltyLabel}
+              </strong>
+            </div>
+            <em className="score-equation-operator">=</em>
+            <div className="score-equation-value score-equation-total">
+              <span>TOTAL SCORE</span>
+              <strong>{formatScore(liveScore)}</strong>
+            </div>
+          </div>
           <div
             className={`game-status ${isDraftComplete ? 'is-complete' : ''}`}
             data-testid="status-game"
@@ -477,108 +562,87 @@ function App() {
 
       <section
         className="game-content"
-        aria-label={isDraftComplete ? undefined : 'Blind Five draft'}
-        aria-labelledby={isDraftComplete ? 'game-title' : undefined}
+        aria-label={
+          isDraftComplete ? 'Blind Five final results' : 'Blind Five draft'
+        }
       >
-        <div className="eyebrow-row">
-          <span className="eyebrow-rule" aria-hidden="true" />
-          <p className="eyebrow">
-            {isDraftComplete ? 'PROJECTED SEASON' : 'STARTING FIVE'}
-          </p>
-          <span className="eyebrow-rule" aria-hidden="true" />
-        </div>
-
-        {isDraftComplete ? (
+        {!isDraftComplete ? (
           <>
-            <h1 id="game-title" data-testid="text-game-title">
-              DRAFT <em>COMPLETE</em>
-            </h1>
-            <p className="game-intro" data-testid="text-game-intro">
-              Your starting five is locked in.
-            </p>
-          </>
-        ) : (
-          <>
+            <div className="eyebrow-row">
+              <span className="eyebrow-rule" aria-hidden="true" />
+              <p className="eyebrow">STARTING FIVE</p>
+              <span className="eyebrow-rule" aria-hidden="true" />
+            </div>
             <div className="active-draft-heading">
               <div className="current-position" data-testid="current-position">
                 <span className="current-position-label">ON THE CLOCK</span>
-                <span className="current-position-value">{currentPosition}</span>
+                <span className="current-position-value">
+                  {currentPosition}
+                </span>
               </div>
               <span className="active-draft-count">
                 {currentPositionIndex + 1} / {POSITIONS.length} POSITIONS
               </span>
             </div>
           </>
-        )}
+        ) : null}
 
-        <nav
-          className="position-progress"
-          aria-label="Lineup position progress"
-          data-testid="progress-positions"
-        >
-          {POSITIONS.map((position, index) => (
-            <div
-              className={`position-step ${
-                isDraftComplete || index < currentPositionIndex
-                  ? 'is-completed'
-                  : index === currentPositionIndex
-                    ? 'is-active'
-                    : 'is-upcoming'
-              }`}
-              key={position}
-              data-testid={`progress-position-${position.toLowerCase()}`}
-              aria-current={
-                !isDraftComplete && index === currentPositionIndex
-                  ? 'step'
-                  : undefined
-              }
-            >
-              <span className="position-index">0{index + 1}</span>
-              <span className="position-code">{position}</span>
-              <span className="position-name">
-                {lineup[position]?.name ??
-                  (index === currentPositionIndex ? 'ON THE CLOCK' : 'UP NEXT')}
-              </span>
-              <span className="position-tick" aria-hidden="true" />
-            </div>
-          ))}
-        </nav>
+        {!isDraftComplete ? (
+          <nav
+            className="position-progress"
+            aria-label="Lineup position progress"
+            data-testid="progress-positions"
+          >
+            {POSITIONS.map((position, index) => (
+              <div
+                className={`position-step ${
+                  index < currentPositionIndex
+                    ? 'is-completed'
+                    : index === currentPositionIndex
+                      ? 'is-active'
+                      : 'is-upcoming'
+                }`}
+                key={position}
+                data-testid={`progress-position-${position.toLowerCase()}`}
+                aria-current={
+                  index === currentPositionIndex ? 'step' : undefined
+                }
+              >
+                <span className="position-index">0{index + 1}</span>
+                <span className="position-code">{position}</span>
+                <span className="position-name">
+                  {lineup[position]?.name ??
+                    (index === currentPositionIndex
+                      ? 'ON THE CLOCK'
+                      : 'UP NEXT')}
+                </span>
+                <span className="position-tick" aria-hidden="true" />
+              </div>
+            ))}
+          </nav>
+        ) : null}
 
         {isDraftComplete ? (
           <section
             className="draft-complete-panel"
             aria-labelledby="draft-complete-heading"
-            data-testid="season-results"
+            data-testid="final-results"
           >
-            {!seasonResult ? (
-              <p className="results-error">Season result unavailable.</p>
-            ) : (
-              <>
-                <div className="season-hero">
-                  <span className="round-kicker">PROJECTED SEASON</span>
-                  <div className="season-record" data-testid="season-record">
-                    {seasonResult.wins} - {seasonResult.losses}
-                  </div>
-                  <strong className="historical-label" data-testid="historical-label">
-                    {seasonResult.classification}
-                  </strong>
-                  <div className="season-stats">
-                    <div>
-                      <span>DRAFT SCORE</span>
-                      <strong>{draftScore ?? 0} / 25</strong>
-                    </div>
-                    <div>
-                      <span>DRAFT EFFICIENCY</span>
-                      <strong>{draftEfficiency ?? 0}%</strong>
-                    </div>
-                    <div>
-                      <span>TEAM PERCENTILE</span>
-                      <strong>
-                        {getTeamPercentileLabel(seasonResult.percentile)}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
+            <div className="final-score-hero">
+              <span className="round-kicker">YOUR SCORE</span>
+              <div className="final-score" data-testid="final-score">
+                {formatScore(liveScore)}
+              </div>
+              {isNewPersonalBest ? (
+                <strong className="new-best" data-testid="new-best">
+                  NEW BEST
+                </strong>
+              ) : null}
+              <p className="personal-best" data-testid="personal-best">
+                PERSONAL BEST{' '}
+                <strong>{formatScore(personalBest ?? liveScore)}</strong>
+              </p>
+            </div>
 
             <div className="completion-header">
               <div>
@@ -591,9 +655,12 @@ function App() {
             <div className="lineup-grid">
               {POSITIONS.map((position, index) => {
                 const player = lineup[position];
+                const pickScore = pickScores[position];
 
-                if (!player) {
-                  throw new Error(`Missing lineup player for position ${position}`);
+                if (!player || !pickScore) {
+                  throw new Error(
+                    `Missing final result for position ${position}`,
+                  );
                 }
 
                 return (
@@ -602,55 +669,79 @@ function App() {
                       0{index + 1} / {position}
                     </span>
                     <strong>{player.name}</strong>
-                    <span className="lineup-tier">{formatTier(player.tier)}</span>
+                    <div className="lineup-result-meta">
+                      <span className="lineup-tier">
+                        {formatTier(player.tier)}
+                      </span>
+                      <strong className="lineup-contribution">
+                        +{formatScore(pickScore.score)}
+                      </strong>
+                    </div>
+                    <span className="lineup-powerup-cost">
+                      {pickScore.powerupsUsed === 0
+                        ? 'NO POWERUPS'
+                        : `${pickScore.powerupsUsed} POWERUP${
+                            pickScore.powerupsUsed === 1 ? '' : 'S'
+                          }`}
+                    </span>
                   </article>
                 );
               })}
             </div>
 
-            {bestAvailableLineup && bestAvailableSeasonResult ? (
-              <>
-                <div className="completion-header best-available-header">
-                  <div>
-                    <span className="round-kicker">AVAILABLE BOARD CEILING</span>
-                    <h2>BEST AVAILABLE FIVE</h2>
-                  </div>
-                  <span className="round-count">05 PLAYERS</span>
-                </div>
+            <div className="completion-header best-possible-header">
+              <div>
+                <span className="round-kicker">YOUR BOARD CEILING</span>
+                <h2>BEST POSSIBLE LINEUP</h2>
+              </div>
+              <span className="best-possible-score">
+                {formatScore(bestPossibleScore)} POINTS
+              </span>
+            </div>
 
-                <div className="best-available-summary" data-testid="best-available-summary">
-                  <div>
-                    <span>BEST AVAILABLE SEASON</span>
-                    <strong data-testid="best-available-record">
-                      {bestAvailableSeasonResult.wins} - {bestAvailableSeasonResult.losses}
-                    </strong>
-                    <em>
-                      {bestAvailableSeasonResult.classification}
-                    </em>
-                  </div>
-                  <div>
-                    <span>BEST AVAILABLE SCORE</span>
-                    <strong>{bestAvailableScore ?? 0} / 25</strong>
-                  </div>
-                </div>
+            <div
+              className="lineup-grid best-possible-grid"
+              data-testid="best-possible-lineup"
+            >
+              {POSITIONS.map((position, index) => {
+                const player = bestPossibleLineup[position];
+                const pickScore = pickScores[position];
 
-                <div className="lineup-grid best-available-grid">
-                  {POSITIONS.map((position, index) => {
-                    const player = bestAvailableLineup[index];
+                if (!player || !pickScore) {
+                  throw new Error(
+                    `Missing best possible result for position ${position}`,
+                  );
+                }
 
-                    return (
-                      <article className="lineup-slot best-available-slot" key={position}>
-                        <span className="lineup-position">
-                          0{index + 1} / {position}
-                        </span>
-                        <strong>{player.name}</strong>
-                        <span className="lineup-tier">{formatTier(player.tier)}</span>
-                      </article>
-                    );
-                  })}
-                </div>
-              </>
-            ) : null}
+                const contribution = calculatePickScore(
+                  player.tier,
+                  pickScore.powerupsUsed,
+                );
+
+                return (
+                  <article
+                    className="lineup-slot best-possible-slot"
+                    key={position}
+                  >
+                    <span className="lineup-position">
+                      0{index + 1} / {position}
+                    </span>
+                    <strong>{player.name}</strong>
+                    <div className="lineup-result-meta">
+                      <span className="lineup-tier">
+                        {formatTier(player.tier)}
+                      </span>
+                      <strong className="lineup-contribution">
+                        +{formatScore(contribution.score)}
+                      </strong>
+                    </div>
+                    <span className="lineup-powerup-cost">
+                      BEST ON YOUR {position} BOARD
+                    </span>
+                  </article>
+                );
+              })}
+            </div>
 
             <button
               className="restart-button"
@@ -661,8 +752,6 @@ function App() {
               <span>Draft Again</span>
               <kbd className="control-keycap">R</kbd>
             </button>
-              </>
-            )}
           </section>
         ) : (
           <>
@@ -674,11 +763,19 @@ function App() {
               <div className="powerups-header">
                 <div>
                   <span className="round-kicker">SCOUTING TOOLS</span>
-                  <h2>POWERUPS</h2>
+                  <div className="powerups-title-row">
+                    <h2>POWERUPS</h2>
+                    <button
+                      className="help-button powerups-help-button"
+                      type="button"
+                      onClick={() => setIsHelpOpen(true)}
+                      aria-label="Explain powerups and keyboard shortcuts"
+                      title="Explain powerups"
+                    >
+                      <kbd className="control-keycap">?</kbd>
+                    </button>
+                  </div>
                 </div>
-                <span className="round-count">
-                  {Object.values(usedPowerups).filter(Boolean).length} / 4 USED
-                </span>
               </div>
 
               <div className="powerup-grid">
@@ -713,10 +810,22 @@ function App() {
               aria-label={`${currentPosition} mystery round`}
               data-testid="mystery-round"
             >
-              <div className="round-corner round-corner-tl" aria-hidden="true" />
-              <div className="round-corner round-corner-tr" aria-hidden="true" />
-              <div className="round-corner round-corner-bl" aria-hidden="true" />
-              <div className="round-corner round-corner-br" aria-hidden="true" />
+              <div
+                className="round-corner round-corner-tl"
+                aria-hidden="true"
+              />
+              <div
+                className="round-corner round-corner-tr"
+                aria-hidden="true"
+              />
+              <div
+                className="round-corner round-corner-bl"
+                aria-hidden="true"
+              />
+              <div
+                className="round-corner round-corner-br"
+                aria-hidden="true"
+              />
 
               <div className="round-header">
                 <div>
@@ -725,7 +834,36 @@ function App() {
                   </span>
                   <h2>{positionDetails[currentPosition]}</h2>
                 </div>
-                <span className="round-count">05 OPTIONS</span>
+                {selectedOptionId !== null ? (
+                  <div className="round-header-selection">
+                    <p
+                      className="selection-feedback"
+                      role="status"
+                      data-testid="status-selection"
+                    >
+                      <span>
+                        {lineup[currentPosition]?.name} selected for{' '}
+                        {currentPosition}
+                      </span>
+                      <strong>TOTAL {formatScore(liveScore)}</strong>
+                    </p>
+                    <button
+                      className="continue-button"
+                      type="button"
+                      onClick={handleContinue}
+                      data-testid="continue-draft"
+                    >
+                      <span>
+                        {currentPositionIndex === POSITIONS.length - 1
+                          ? 'Finish Draft'
+                          : 'Next'}
+                      </span>
+                      <kbd className="control-keycap">N</kbd>
+                    </button>
+                  </div>
+                ) : (
+                  <span className="round-count">05 OPTIONS</span>
+                )}
               </div>
 
               <div className="mystery-card-grid">
@@ -760,21 +898,51 @@ function App() {
                           ? 'SELECTED'
                           : selectedOptionId !== null
                             ? 'LOCKED'
-                            : `OPTION 0${index + 1}`}
+                            : revealedPlayers?.[option.optionId]
+                              ? 'REVEALED'
+                              : `OPTION 0${index + 1}`}
                       </span>
                       <span aria-hidden="true">
-                        {selectedOptionId === option.optionId ? 'SELECTED' : 'OPEN'}
+                        {selectedOptionId === option.optionId
+                          ? 'SELECTED'
+                          : selectedOptionId !== null
+                            ? 'NOT PICKED'
+                            : revealedPlayers?.[option.optionId]
+                              ? 'VISIBLE'
+                              : 'OPEN'}
                       </span>
                     </div>
 
-                    {revealedPlayers?.[option.optionId] ? (
-                      <div className="card-reveal card-reveal-header" aria-live="polite">
-                        <strong>{revealedPlayers[option.optionId].name}</strong>
-                        <span>
-                          {formatTier(revealedPlayers[option.optionId].tier)}
-                        </span>
-                      </div>
-                    ) : null}
+                    <div
+                      className="card-reveal card-reveal-header"
+                      aria-live="polite"
+                    >
+                      {revealedPlayers?.[option.optionId] ? (
+                        <>
+                          <strong>
+                            {revealedPlayers[option.optionId].name}
+                          </strong>
+                          <span>
+                            {formatTier(revealedPlayers[option.optionId].tier)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <strong
+                            className="card-reveal-placeholder"
+                            aria-hidden="true"
+                          >
+                            — — —
+                          </strong>
+                          <span
+                            className="card-tier-placeholder"
+                            aria-hidden="true"
+                          >
+                            — —
+                          </span>
+                        </>
+                      )}
+                    </div>
 
                     <div className="card-clues">
                       {option.hints.map((hint, hintIndex) => (
@@ -782,7 +950,7 @@ function App() {
                           className="card-clue"
                           key={`${option.optionId}-hint-${hintIndex}`}
                         >
-                          {hint}
+                          <span>{hint}</span>
                         </p>
                       ))}
                     </div>
@@ -796,47 +964,47 @@ function App() {
                           >
                             <span>{powerup.label}</span>
                             <strong>
-                              {currentPowerupReveals[powerup.id]?.[
-                                option.optionId
-                              ]}
+                              {
+                                currentPowerupReveals[powerup.id]?.[
+                                  option.optionId
+                                ]
+                              }
                             </strong>
                           </p>
                         ))}
                       </div>
                     ) : null}
 
-                    <button
-                      className="pick-button"
-                      type="button"
-                      disabled={selectedOptionId !== null}
-                      onClick={() => handlePick(option.optionId)}
-                      data-testid={`pick-option-${option.optionId}`}
-                    >
-                      Pick
-                    </button>
+                    {selectedOptionId === option.optionId &&
+                    currentPickScore ? (
+                      <div
+                        className="card-pick-score"
+                        data-testid="current-pick-score"
+                      >
+                        {currentPickScore.powerupsUsed > 0 ? (
+                          <span>
+                            {formatScore(currentPickScore.basePoints)} ×{' '}
+                            {currentPickScore.multiplier.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span>NO POWERUP PENALTY</span>
+                        )}
+                        <strong>+{formatScore(currentPickScore.score)}</strong>
+                      </div>
+                    ) : (
+                      <button
+                        className="pick-button"
+                        type="button"
+                        disabled={selectedOptionId !== null}
+                        onClick={() => handlePick(option.optionId)}
+                        data-testid={`pick-option-${option.optionId}`}
+                      >
+                        Pick
+                      </button>
+                    )}
                   </article>
                 ))}
               </div>
-
-              {selectedOptionId !== null ? (
-                <div className="continue-area">
-                  <div>
-                    <p className="selection-feedback" role="status" data-testid="status-selection">
-                      {lineup[currentPosition]?.name} selected for {currentPosition}
-                    </p>
-                    <button
-                      className="continue-button"
-                      type="button"
-                      onClick={handleContinue}
-                      data-testid="continue-draft"
-                    >
-                      {currentPositionIndex === POSITIONS.length - 1
-                        ? 'Finish Draft'
-                        : 'Continue'}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </section>
           </>
         )}
@@ -874,7 +1042,7 @@ function App() {
             <div className="help-modal-header">
               <div>
                 <span className="round-kicker">QUICK REFERENCE</span>
-                <h2 id="help-modal-title">POWERUPS &amp; SHORTCUTS</h2>
+                <h2 id="help-modal-title">SCORING &amp; POWERUPS</h2>
               </div>
               <button
                 className="help-close-button"
@@ -886,9 +1054,45 @@ function App() {
               </button>
             </div>
             <p className="help-modal-intro">
-              Use extra information before you commit to a pick. Every powerup
-              is one-use per draft and is consumed as soon as you activate it.
+              Build the best five you can. Powerups make each decision safer,
+              but lower the scoring ceiling for that pick.
             </p>
+            <section className="help-scoring" aria-labelledby="scoring-title">
+              <div className="help-section-heading">
+                <h3 id="scoring-title">SCORING</h3>
+                <strong>MAX 100.0</strong>
+              </div>
+              <div className="help-score-columns">
+                <div>
+                  <span className="help-score-label">PLAYER VALUE</span>
+                  {(
+                    ['ALL_TIMER', 'ALL_STAR', 'SOLID', 'BENCH', 'BUST'] as const
+                  ).map((tier) => (
+                    <p key={tier}>
+                      <span>{formatTier(tier)}</span>
+                      <strong>{PLAYER_TIER_POINTS[tier]}</strong>
+                    </p>
+                  ))}
+                </div>
+                <div>
+                  <span className="help-score-label">POWERUP MULTIPLIER</span>
+                  {([0, 1, 2, 3, 4] as const).map((count) => (
+                    <p key={count}>
+                      <span>
+                        {count} POWERUP{count === 1 ? '' : 'S'}
+                      </span>
+                      <strong>
+                        {Math.round(POWERUP_MULTIPLIERS[count] * 100)}%
+                      </strong>
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <p className="help-perfect-score">
+                A perfect 100.0 requires five All-Timers without using a single
+                powerup. Each powerup can be used once per draft.
+              </p>
+            </section>
             <div className="help-powerup-list">
               {powerupDefinitions.map((powerup) => (
                 <div className="help-powerup-row" key={powerup.id}>
@@ -902,6 +1106,9 @@ function App() {
             </div>
             <div className="help-shortcuts">
               <span>
+                <kbd className="control-keycap">N</kbd> Next Pick
+              </span>
+              <span>
                 <kbd className="control-keycap">R</kbd> Restart / Draft Again
               </span>
               <span>
@@ -911,11 +1118,10 @@ function App() {
             <button
               className="help-reopen-button"
               type="button"
-              onClick={openHowToPlay}
+              onClick={() => setIsHelpOpen(false)}
             >
-              REOPEN HOW TO PLAY
+              BACK TO THE GAME
             </button>
-            <p className="help-modal-note">ESC OR CLICK OUTSIDE TO CLOSE</p>
           </section>
         </div>
       ) : null}
@@ -955,15 +1161,15 @@ function App() {
               <li>
                 <span>01</span>
                 <p>
-                  <strong>Draft your lineup.</strong> Choose in order: PG,
-                  SG, SF, PF, then C.
+                  <strong>Build the best five you can.</strong> Draft PG, SG,
+                  SF, PF, then C. Every pick is worth up to 20 points.
                 </p>
               </li>
               <li>
                 <span>02</span>
                 <p>
-                  <strong>Read the clues.</strong> Each round shows five
-                  mystery players identified only by clues.
+                  <strong>Read the clues.</strong> Each round shows five mystery
+                  players identified only by clues.
                 </p>
               </li>
               <li>
@@ -976,8 +1182,9 @@ function App() {
               <li>
                 <span>04</span>
                 <p>
-                  <strong>Use powerups wisely.</strong> They reveal extra
-                  information, but each is one-use per draft.
+                  <strong>Protect your scoring ceiling.</strong> Every clue
+                  helps, but powerups reduce the points available for that pick.
+                  Each powerup is one-use per draft.
                 </p>
               </li>
             </ol>
