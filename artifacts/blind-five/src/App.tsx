@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   applyFranchisePlayer,
   createRound,
   resolveMysteryPlayer,
-} from './game/round';
+} from "./game/round";
 import {
   canUsePowerup,
   countNewlyUsedPowerups,
@@ -17,7 +17,7 @@ import {
   type PowerupId,
   type PowerupRevealId,
   type PowerupReveals,
-} from './game/powerups';
+} from "./game/powerups";
 import {
   calculateFinalScore,
   calculatePickScore,
@@ -29,8 +29,14 @@ import {
   POWERUP_MULTIPLIERS,
   selectBestScoringPlayer,
   type PickScoreBreakdown,
-} from './game/scoring';
-import { POSITIONS, type Player, type Position } from './types/player';
+} from "./game/scoring";
+import {
+  fetchLeaderboard,
+  getAnonymousPlayerId,
+  submitLeaderboardScore,
+  type LeaderboardEntry,
+} from "./game/leaderboard";
+import { POSITIONS, type Player, type Position } from "./types/player";
 
 type PowerupDefinition = {
   id: PowerupId;
@@ -40,53 +46,145 @@ type PowerupDefinition = {
   field?: PowerupField;
 };
 
-type RevealPowerupDefinition = Omit<PowerupDefinition, 'id' | 'field'> & {
+type RevealPowerupDefinition = Omit<PowerupDefinition, "id" | "field"> & {
   id: PowerupRevealId;
   field: PowerupField;
 };
 
 const powerupDefinitions: PowerupDefinition[] = [
   {
-    id: 'teamCheck',
-    label: 'EXTRA HINT',
-    description: 'Reveals an extra hint for each player.',
-    shortcut: '1',
-    field: 'teamHint',
+    id: "teamCheck",
+    label: "EXTRA HINT",
+    description: "Reveals an extra hint for each player.",
+    shortcut: "1",
+    field: "teamHint",
   },
   {
-    id: 'timeline',
-    label: 'TIMELINE',
-    description: 'Reveals years active for each player.',
-    shortcut: '2',
-    field: 'yearsActive',
+    id: "timeline",
+    label: "TIMELINE",
+    description: "Reveals years active for each player.",
+    shortcut: "2",
+    field: "yearsActive",
   },
   {
-    id: 'revealBoard',
-    label: 'REVEAL BOARD',
-    description: 'Reveals every player and tier on the current board.',
-    shortcut: '3',
+    id: "revealBoard",
+    label: "REVEAL BOARD",
+    description: "Reveals every player and tier on the current board.",
+    shortcut: "3",
   },
   {
-    id: 'franchisePlayer',
-    label: 'FRANCHISE PLAYER',
+    id: "franchisePlayer",
+    label: "FRANCHISE PLAYER",
     description:
-      'Shuffles the board to guarantee at least one all-timer on the board.',
-    shortcut: '4',
+      "Shuffles the board to guarantee at least one all-timer on the board.",
+    shortcut: "4",
   },
 ];
 
+const scoringExample = calculatePickScore("ALL_TIMER", 2);
+
 const positionDetails: Record<Position, string> = {
-  PG: 'CHOOSE YOUR POINT GUARD',
-  SG: 'CHOOSE YOUR SHOOTING GUARD',
-  SF: 'CHOOSE YOUR SMALL FORWARD',
-  PF: 'CHOOSE YOUR POWER FORWARD',
-  C: 'CHOOSE YOUR CENTER',
+  PG: "CHOOSE YOUR POINT GUARD",
+  SG: "CHOOSE YOUR SHOOTING GUARD",
+  SF: "CHOOSE YOUR SMALL FORWARD",
+  PF: "CHOOSE YOUR POWER FORWARD",
+  C: "CHOOSE YOUR CENTER",
 };
 
-const PERSONAL_BEST_STORAGE_KEY = 'blind-five-personal-best';
+const PERSONAL_BEST_STORAGE_KEY = "blind-five-personal-best";
 
-function formatTier(tier: Player['tier']) {
-  return tier.replace('_', ' ');
+function formatTier(tier: Player["tier"]) {
+  return tier.replace("_", " ");
+}
+
+function ScoringExample() {
+  return (
+    <div className="help-score-example">
+      <div>
+        <span>EXAMPLE PICK</span>
+        <strong>HALL OF FAMER / ALL-TIMER</strong>
+      </div>
+      <div className="help-score-example-equation">
+        <span>{formatScore(scoringExample.basePoints)}</span>
+        <em>×</em>
+        <span>{scoringExample.multiplier.toFixed(2)}</span>
+        <em>=</em>
+        <strong>+{formatScore(scoringExample.score)}</strong>
+      </div>
+      <small>2 POWERUPS USED</small>
+    </div>
+  );
+}
+
+type LeaderboardBoardProps = {
+  entries: LeaderboardEntry[];
+  anonymousPlayerId: string;
+  isLoading: boolean;
+  error: string | null;
+  columns?: boolean;
+};
+
+function LeaderboardBoard({
+  entries,
+  anonymousPlayerId,
+  isLoading,
+  error,
+  columns = false,
+}: LeaderboardBoardProps) {
+  const entryGroups =
+    columns && entries.length > 5
+      ? [entries.slice(0, 5), entries.slice(5)]
+      : [entries];
+
+  return (
+    <>
+      {error ? (
+        <p className="leaderboard-message is-error" role="status">
+          {error}
+        </p>
+      ) : null}
+
+      {entries.length > 0 ? (
+        <div
+          className={`leaderboard-lists ${
+            entryGroups.length > 1 ? "is-split" : ""
+          }`}
+        >
+          {entryGroups.map((group) => (
+            <ol className="leaderboard-list" key={group[0]?.rank ?? 0}>
+              {group.map((entry) => (
+                <li
+                  className={
+                    entry.playerId === anonymousPlayerId ? "is-you" : ""
+                  }
+                  key={entry.playerId}
+                >
+                  <span className="leaderboard-rank">
+                    {String(entry.rank).padStart(2, "0")}
+                  </span>
+                  <strong>{entry.displayName}</strong>
+                  <span className="leaderboard-score">
+                    {formatScore(entry.score)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ))}
+        </div>
+      ) : (
+        <p className="leaderboard-message" role="status">
+          {isLoading
+            ? "LOADING SCORES…"
+            : "NO SCORES YET — FINISH A DRAFT TO TAKE THE TOP SPOT."}
+        </p>
+      )}
+
+      <div className="leaderboard-live-note">
+        <span className="status-dot" aria-hidden="true" />
+        <span>LIVE · REFRESHES EVERY 10 SECONDS</span>
+      </div>
+    </>
+  );
 }
 
 function formatRunningPenalty(
@@ -118,13 +216,13 @@ function isEditableTarget(target: EventTarget | null) {
 }
 
 function getInitialHowToPlayOpen() {
-  if (typeof window === 'undefined') {
+  if (typeof window === "undefined") {
     return false;
   }
 
   try {
     return (
-      window.localStorage.getItem('blind-five-how-to-play-seen') !== 'true'
+      window.localStorage.getItem("blind-five-how-to-play-seen") !== "true"
     );
   } catch {
     return false;
@@ -133,14 +231,14 @@ function getInitialHowToPlayOpen() {
 
 function persistHowToPlayDismissal() {
   try {
-    window.localStorage.setItem('blind-five-how-to-play-seen', 'true');
+    window.localStorage.setItem("blind-five-how-to-play-seen", "true");
   } catch {
     // If storage is unavailable, the current session can still continue.
   }
 }
 
 function getInitialPersonalBest(): number | null {
-  if (typeof window === 'undefined') {
+  if (typeof window === "undefined") {
     return null;
   }
 
@@ -193,10 +291,21 @@ function App() {
   const [personalBest, setPersonalBest] = useState(getInitialPersonalBest);
   const [isNewPersonalBest, setIsNewPersonalBest] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [leaderboardEntries, setLeaderboardEntries] = useState<
+    LeaderboardEntry[]
+  >([]);
+  const [leaderboardPlayerName, setLeaderboardPlayerName] = useState<
+    string | null
+  >(null);
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+  const [anonymousPlayerId] = useState(getAnonymousPlayerId);
   const [isHowToPlayOpen, setIsHowToPlayOpen] = useState(
     getInitialHowToPlayOpen,
   );
   const modalRef = useRef<HTMLElement>(null);
+  const completionLeaderboardRef = useRef<HTMLElement>(null);
 
   const currentPosition = POSITIONS[currentPositionIndex];
   const currentBoardPowerupsUsed = countNewlyUsedPowerups(
@@ -230,13 +339,58 @@ function App() {
   );
   const revealedPowerups = powerupDefinitions.filter(
     (powerup): powerup is RevealPowerupDefinition => {
-      if (powerup.id !== 'teamCheck' && powerup.id !== 'timeline') {
+      if (powerup.id !== "teamCheck" && powerup.id !== "timeline") {
         return false;
       }
 
       return Boolean(currentPowerupReveals[powerup.id]);
     },
   );
+
+  const loadLeaderboard = useCallback(
+    async (signal?: AbortSignal) => {
+      setIsLeaderboardLoading(true);
+
+      try {
+        const entries = await fetchLeaderboard(signal);
+        setLeaderboardEntries(entries);
+        setLeaderboardError(null);
+
+        const playerEntry = entries.find(
+          (entry) => entry.playerId === anonymousPlayerId,
+        );
+        if (playerEntry) {
+          setLeaderboardPlayerName(playerEntry.displayName);
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        setLeaderboardError("Leaderboard is temporarily unavailable.");
+      } finally {
+        setIsLeaderboardLoading(false);
+      }
+    },
+    [anonymousPlayerId],
+  );
+
+  const showLeaderboard = useCallback(() => {
+    setIsHelpOpen(false);
+
+    if (isDraftComplete) {
+      setIsLeaderboardOpen(false);
+      window.requestAnimationFrame(() => {
+        completionLeaderboardRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+      return;
+    }
+
+    setIsLeaderboardOpen(true);
+  }, [isDraftComplete]);
 
   const handlePick = (optionId: string) => {
     if (selectedOptionId !== null) {
@@ -286,7 +440,7 @@ function App() {
       throw new Error(`Unknown powerup ${powerupId}`);
     }
 
-    if (powerupId === 'franchisePlayer') {
+    if (powerupId === "franchisePlayer") {
       const nextRound = applyFranchisePlayer(round);
       setRound(nextRound);
       setRevealedPlayers(
@@ -303,7 +457,7 @@ function App() {
       return;
     }
 
-    if (powerupId === 'revealBoard') {
+    if (powerupId === "revealBoard") {
       setRevealedPlayers(resolveBoardPlayers(round, resolveMysteryPlayer));
       setUsedPowerups((currentState) =>
         consumePowerup(currentState, powerupId),
@@ -359,6 +513,15 @@ function App() {
       setPersonalBest(nextPersonalBest);
       persistPersonalBest(nextPersonalBest);
       setIsDraftComplete(true);
+      void submitLeaderboardScore(anonymousPlayerId, completedScore)
+        .then(({ entry, entries }) => {
+          setLeaderboardPlayerName(entry.displayName);
+          setLeaderboardEntries(entries);
+          setLeaderboardError(null);
+        })
+        .catch(() => {
+          setLeaderboardError("Your score could not be added right now.");
+        });
       return;
     }
 
@@ -392,7 +555,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (!isHelpOpen && !isHowToPlayOpen) {
+    if (!isHelpOpen && !isHowToPlayOpen && !isLeaderboardOpen) {
       return;
     }
 
@@ -407,7 +570,7 @@ function App() {
     focusable[0]?.focus();
 
     const handleModalTab = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || focusable.length === 0) {
+      if (event.key !== "Tab" || focusable.length === 0) {
         return;
       }
 
@@ -423,12 +586,29 @@ function App() {
       }
     };
 
-    document.addEventListener('keydown', handleModalTab);
+    document.addEventListener("keydown", handleModalTab);
     return () => {
-      document.removeEventListener('keydown', handleModalTab);
+      document.removeEventListener("keydown", handleModalTab);
       previouslyFocused?.focus();
     };
-  }, [isHelpOpen, isHowToPlayOpen]);
+  }, [isHelpOpen, isHowToPlayOpen, isLeaderboardOpen]);
+
+  useEffect(() => {
+    if (!isLeaderboardOpen && !isDraftComplete) {
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadLeaderboard(controller.signal);
+    const refreshTimer = window.setInterval(() => {
+      void loadLeaderboard(controller.signal);
+    }, 10_000);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshTimer);
+    };
+  }, [isDraftComplete, isLeaderboardOpen, loadLeaderboard]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -436,34 +616,50 @@ function App() {
         return;
       }
 
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         if (isHowToPlayOpen) {
           event.preventDefault();
           closeHowToPlay();
         } else if (isHelpOpen) {
           event.preventDefault();
           setIsHelpOpen(false);
+        } else if (isLeaderboardOpen) {
+          event.preventDefault();
+          setIsLeaderboardOpen(false);
         }
         return;
       }
 
-      if (event.key === '?') {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (event.key === "?" || event.key.toLowerCase() === "h") {
         event.preventDefault();
         if (!isHowToPlayOpen) {
+          setIsLeaderboardOpen(false);
           setIsHelpOpen(true);
         }
         return;
       }
 
-      if (isHelpOpen || isHowToPlayOpen || isEditableTarget(event.target)) {
+      if (event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        if (!isHowToPlayOpen) {
+          showLeaderboard();
+        }
+        return;
+      }
+
+      if (isHelpOpen || isHowToPlayOpen || isLeaderboardOpen) {
         return;
       }
 
       const shortcutPowerups: Record<string, PowerupId> = {
-        '1': 'teamCheck',
-        '2': 'timeline',
-        '3': 'revealBoard',
-        '4': 'franchisePlayer',
+        "1": "teamCheck",
+        "2": "timeline",
+        "3": "revealBoard",
+        "4": "franchisePlayer",
       };
       const powerupId = shortcutPowerups[event.key];
 
@@ -481,7 +677,7 @@ function App() {
       }
 
       if (
-        event.key.toLowerCase() === 'n' &&
+        event.key.toLowerCase() === "n" &&
         selectedOptionId !== null &&
         !isDraftComplete
       ) {
@@ -490,27 +686,29 @@ function App() {
         return;
       }
 
-      if (event.key.toLowerCase() === 'r') {
+      if (event.key.toLowerCase() === "r") {
         event.preventDefault();
         handleRestart();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     currentPowerupReveals,
     isDraftComplete,
     isHelpOpen,
     isHowToPlayOpen,
+    isLeaderboardOpen,
     round,
     selectedOptionId,
+    showLeaderboard,
     usedPowerups,
   ]);
 
   return (
     <main
-      className={`game-shell ${isDraftComplete ? 'is-complete' : 'is-drafting'}`}
+      className={`game-shell ${isDraftComplete ? "is-complete" : "is-drafting"}`}
       data-testid="page-blind-five"
     >
       <div className="court-lines" aria-hidden="true" />
@@ -522,15 +720,42 @@ function App() {
           </span>
           <span className="brand-name">BLIND FIVE</span>
         </div>
-        <button
-          className="topbar-restart-button"
-          type="button"
-          onClick={handleRestart}
-          aria-label="Restart draft. Keyboard shortcut R"
-        >
-          <kbd className="control-keycap">R</kbd>
-          <span>RESTART DRAFT</span>
-        </button>
+        <div className="topbar-center-actions">
+          <button
+            className="topbar-restart-button"
+            type="button"
+            onClick={handleRestart}
+            aria-label="Restart draft. Keyboard shortcut R"
+          >
+            <kbd className="control-keycap">R</kbd>
+            <span>RESTART DRAFT</span>
+          </button>
+          <button
+            className="topbar-restart-button topbar-help-button"
+            type="button"
+            onClick={() => {
+              setIsLeaderboardOpen(false);
+              setIsHelpOpen(true);
+            }}
+            aria-label="Open help. Keyboard shortcut H"
+          >
+            <kbd className="control-keycap">H</kbd>
+            <span>HELP</span>
+          </button>
+          <button
+            className="topbar-restart-button topbar-leaderboard-button"
+            type="button"
+            onClick={showLeaderboard}
+            aria-label={
+              isDraftComplete
+                ? "Jump to leaderboard. Keyboard shortcut L"
+                : "Open leaderboard. Keyboard shortcut L"
+            }
+          >
+            <kbd className="control-keycap">L</kbd>
+            <span>LEADERBOARD</span>
+          </button>
+        </div>
         <div className="topbar-actions">
           <div className="live-score" data-testid="live-score">
             <div className="score-equation-value">
@@ -551,11 +776,11 @@ function App() {
             </div>
           </div>
           <div
-            className={`game-status ${isDraftComplete ? 'is-complete' : ''}`}
+            className={`game-status ${isDraftComplete ? "is-complete" : ""}`}
             data-testid="status-game"
           >
             <span className="status-dot" aria-hidden="true" />
-            <span>{isDraftComplete ? 'FINAL WHISTLE' : 'PRE-GAME'}</span>
+            <span>{isDraftComplete ? "FINAL WHISTLE" : "PRE-GAME"}</span>
           </div>
         </div>
       </header>
@@ -563,7 +788,7 @@ function App() {
       <section
         className="game-content"
         aria-label={
-          isDraftComplete ? 'Blind Five final results' : 'Blind Five draft'
+          isDraftComplete ? "Blind Five final results" : "Blind Five draft"
         }
       >
         {!isDraftComplete ? (
@@ -597,15 +822,15 @@ function App() {
               <div
                 className={`position-step ${
                   index < currentPositionIndex
-                    ? 'is-completed'
+                    ? "is-completed"
                     : index === currentPositionIndex
-                      ? 'is-active'
-                      : 'is-upcoming'
+                      ? "is-active"
+                      : "is-upcoming"
                 }`}
                 key={position}
                 data-testid={`progress-position-${position.toLowerCase()}`}
                 aria-current={
-                  index === currentPositionIndex ? 'step' : undefined
+                  index === currentPositionIndex ? "step" : undefined
                 }
               >
                 <span className="position-index">0{index + 1}</span>
@@ -613,8 +838,8 @@ function App() {
                 <span className="position-name">
                   {lineup[position]?.name ??
                     (index === currentPositionIndex
-                      ? 'ON THE CLOCK'
-                      : 'UP NEXT')}
+                      ? "ON THE CLOCK"
+                      : "UP NEXT")}
                 </span>
                 <span className="position-tick" aria-hidden="true" />
               </div>
@@ -629,19 +854,25 @@ function App() {
             data-testid="final-results"
           >
             <div className="final-score-hero">
-              <span className="round-kicker">YOUR SCORE</span>
-              <div className="final-score" data-testid="final-score">
-                {formatScore(liveScore)}
+              <div className="final-score-primary">
+                <span className="round-kicker">FINAL SCORE</span>
+                <div className="final-score" data-testid="final-score">
+                  {formatScore(liveScore)}
+                </div>
               </div>
-              {isNewPersonalBest ? (
-                <strong className="new-best" data-testid="new-best">
-                  NEW BEST
-                </strong>
-              ) : null}
-              <p className="personal-best" data-testid="personal-best">
-                PERSONAL BEST{' '}
-                <strong>{formatScore(personalBest ?? liveScore)}</strong>
-              </p>
+              <div className="final-score-summary">
+                {isNewPersonalBest ? (
+                  <strong className="new-best" data-testid="new-best">
+                    NEW BEST
+                  </strong>
+                ) : (
+                  <span className="score-complete-label">DRAFT COMPLETE</span>
+                )}
+                <p className="personal-best" data-testid="personal-best">
+                  PERSONAL BEST{" "}
+                  <strong>{formatScore(personalBest ?? liveScore)}</strong>
+                </p>
+              </div>
             </div>
 
             <div className="completion-header">
@@ -679,9 +910,9 @@ function App() {
                     </div>
                     <span className="lineup-powerup-cost">
                       {pickScore.powerupsUsed === 0
-                        ? 'NO POWERUPS'
+                        ? "NO POWERUPS"
                         : `${pickScore.powerupsUsed} POWERUP${
-                            pickScore.powerupsUsed === 1 ? '' : 'S'
+                            pickScore.powerupsUsed === 1 ? "" : "S"
                           }`}
                     </span>
                   </article>
@@ -743,6 +974,32 @@ function App() {
               })}
             </div>
 
+            <section
+              className="completion-leaderboard"
+              aria-labelledby="completion-leaderboard-title"
+              ref={completionLeaderboardRef}
+            >
+              <div className="completion-leaderboard-header">
+                <div>
+                  <span className="round-kicker">LIVE / TOP 10</span>
+                  <h2 id="completion-leaderboard-title">LEADERBOARD</h2>
+                </div>
+                <div className="leaderboard-identity">
+                  <span>YOU</span>
+                  <strong>
+                    {leaderboardPlayerName ?? "ASSIGNING PLAYER NAME…"}
+                  </strong>
+                </div>
+              </div>
+              <LeaderboardBoard
+                entries={leaderboardEntries}
+                anonymousPlayerId={anonymousPlayerId}
+                isLoading={isLeaderboardLoading}
+                error={leaderboardError}
+                columns
+              />
+            </section>
+
             <button
               className="restart-button"
               type="button"
@@ -787,7 +1044,7 @@ function App() {
                   return (
                     <button
                       className={`powerup-button ${
-                        isUsed || isLockedAfterPick ? 'is-used' : ''
+                        isUsed || isLockedAfterPick ? "is-used" : ""
                       }`}
                       type="button"
                       disabled={isUsed || isLockedAfterPick}
@@ -842,7 +1099,7 @@ function App() {
                       data-testid="status-selection"
                     >
                       <span>
-                        {lineup[currentPosition]?.name} selected for{' '}
+                        {lineup[currentPosition]?.name} selected for{" "}
                         {currentPosition}
                       </span>
                       <strong>TOTAL {formatScore(liveScore)}</strong>
@@ -855,8 +1112,8 @@ function App() {
                     >
                       <span>
                         {currentPositionIndex === POSITIONS.length - 1
-                          ? 'Finish Draft'
-                          : 'Next'}
+                          ? "Finish Draft"
+                          : "Next"}
                       </span>
                       <kbd className="control-keycap">N</kbd>
                     </button>
@@ -871,45 +1128,45 @@ function App() {
                   <article
                     className={`mystery-card ${
                       selectedOptionId === option.optionId
-                        ? 'is-selected'
+                        ? "is-selected"
                         : selectedOptionId !== null
-                          ? 'is-locked'
-                          : ''
+                          ? "is-locked"
+                          : ""
                     } ${
                       revealedPlayers?.[option.optionId]
                         ? `is-revealed tier-${revealedPlayers[
                             option.optionId
                           ].tier
                             .toLowerCase()
-                            .replace('_', '-')}`
-                        : ''
+                            .replace("_", "-")}`
+                        : ""
                     }`}
                     data-testid="mystery-card"
                     key={option.optionId}
                     aria-label={
                       revealedPlayers?.[option.optionId]
                         ? `${revealedPlayers[option.optionId].name}, ${formatTier(revealedPlayers[option.optionId].tier)}`
-                        : 'Mystery player'
+                        : "Mystery player"
                     }
                   >
                     <div className="card-topline">
                       <span>
                         {selectedOptionId === option.optionId
-                          ? 'SELECTED'
+                          ? "SELECTED"
                           : selectedOptionId !== null
-                            ? 'LOCKED'
+                            ? "LOCKED"
                             : revealedPlayers?.[option.optionId]
-                              ? 'REVEALED'
+                              ? "REVEALED"
                               : `OPTION 0${index + 1}`}
                       </span>
                       <span aria-hidden="true">
                         {selectedOptionId === option.optionId
-                          ? 'SELECTED'
+                          ? "SELECTED"
                           : selectedOptionId !== null
-                            ? 'NOT PICKED'
+                            ? "NOT PICKED"
                             : revealedPlayers?.[option.optionId]
-                              ? 'VISIBLE'
-                              : 'OPEN'}
+                              ? "VISIBLE"
+                              : "OPEN"}
                       </span>
                     </div>
 
@@ -983,7 +1240,7 @@ function App() {
                       >
                         {currentPickScore.powerupsUsed > 0 ? (
                           <span>
-                            {formatScore(currentPickScore.basePoints)} ×{' '}
+                            {formatScore(currentPickScore.basePoints)} ×{" "}
                             {currentPickScore.multiplier.toFixed(2)}
                           </span>
                         ) : (
@@ -1066,7 +1323,7 @@ function App() {
                 <div>
                   <span className="help-score-label">PLAYER VALUE</span>
                   {(
-                    ['ALL_TIMER', 'ALL_STAR', 'SOLID', 'BENCH', 'BUST'] as const
+                    ["ALL_TIMER", "ALL_STAR", "SOLID", "BENCH", "BUST"] as const
                   ).map((tier) => (
                     <p key={tier}>
                       <span>{formatTier(tier)}</span>
@@ -1079,7 +1336,7 @@ function App() {
                   {([0, 1, 2, 3, 4] as const).map((count) => (
                     <p key={count}>
                       <span>
-                        {count} POWERUP{count === 1 ? '' : 'S'}
+                        {count} POWERUP{count === 1 ? "" : "S"}
                       </span>
                       <strong>
                         {Math.round(POWERUP_MULTIPLIERS[count] * 100)}%
@@ -1088,6 +1345,7 @@ function App() {
                   ))}
                 </div>
               </div>
+              <ScoringExample />
               <p className="help-perfect-score">
                 A perfect 100.0 requires five All-Timers without using a single
                 powerup. Each powerup can be used once per draft.
@@ -1112,7 +1370,10 @@ function App() {
                 <kbd className="control-keycap">R</kbd> Restart / Draft Again
               </span>
               <span>
-                <kbd className="control-keycap">?</kbd> Open Help
+                <kbd className="control-keycap">H</kbd> Open Help
+              </span>
+              <span>
+                <kbd className="control-keycap">L</kbd> Leaderboard
               </span>
             </div>
             <button
@@ -1122,6 +1383,55 @@ function App() {
             >
               BACK TO THE GAME
             </button>
+          </section>
+        </div>
+      ) : null}
+
+      {isLeaderboardOpen ? (
+        <div
+          className="help-modal-backdrop leaderboard-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.currentTarget === event.target) {
+              setIsLeaderboardOpen(false);
+            }
+          }}
+        >
+          <section
+            className="help-modal leaderboard-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="leaderboard-title"
+            ref={modalRef}
+          >
+            <div className="help-modal-header">
+              <div>
+                <span className="round-kicker">LIVE / TOP 10</span>
+                <h2 id="leaderboard-title">LEADERBOARD</h2>
+              </div>
+              <button
+                className="help-close-button"
+                type="button"
+                onClick={() => setIsLeaderboardOpen(false)}
+                aria-label="Close leaderboard"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="leaderboard-identity">
+              <span>YOUR ANONYMOUS NAME</span>
+              <strong>
+                {leaderboardPlayerName ?? "ASSIGNED AFTER YOUR FIRST DRAFT"}
+              </strong>
+            </div>
+
+            <LeaderboardBoard
+              entries={leaderboardEntries}
+              anonymousPlayerId={anonymousPlayerId}
+              isLoading={isLeaderboardLoading}
+              error={leaderboardError}
+            />
           </section>
         </div>
       ) : null}
@@ -1152,7 +1462,7 @@ function App() {
                 className="help-close-button"
                 type="button"
                 onClick={closeHowToPlay}
-                aria-label="Skip How to Play"
+                aria-label="Close How to Play"
               >
                 ×
               </button>
@@ -1188,6 +1498,7 @@ function App() {
                 </p>
               </li>
             </ol>
+            <ScoringExample />
             <div className="how-to-play-actions">
               <button
                 className="start-draft-button"
@@ -1195,13 +1506,6 @@ function App() {
                 onClick={closeHowToPlay}
               >
                 START DRAFT
-              </button>
-              <button
-                className="skip-how-to-play-button"
-                type="button"
-                onClick={closeHowToPlay}
-              >
-                SKIP
               </button>
             </div>
           </section>
