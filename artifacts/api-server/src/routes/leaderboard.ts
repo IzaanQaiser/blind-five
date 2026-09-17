@@ -81,7 +81,7 @@ function sortedMemoryEntries(): StoredLeaderboardEntry[] {
 }
 
 async function getDatabasePool() {
-  if (!process.env.DATABASE_URL) {
+  if (!process.env.SUPABASE_DATABASE_URL && !process.env.DATABASE_URL) {
     return null;
   }
 

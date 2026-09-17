@@ -4,13 +4,16 @@ import * as schema from "./schema";
 
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
+const databaseUrl =
+  process.env.SUPABASE_DATABASE_URL ?? process.env.DATABASE_URL;
+
+if (!databaseUrl) {
   throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
+    "SUPABASE_DATABASE_URL or DATABASE_URL must be set. Did you forget to provision a database?",
   );
 }
 
-const connectionUrl = new URL(process.env.DATABASE_URL);
+const connectionUrl = new URL(databaseUrl);
 
 // node-postgres 8.23+ verifies certificates for sslmode=require by default,
 // while Postgres/libpq (and Supabase's documented URI) use `require` to mean
